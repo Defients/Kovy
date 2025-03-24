@@ -1,0 +1,94 @@
+{
+  "debug_mode": false,
+  "primary_screen_only": true,
+  "start_minimized": false,
+
+  "initial_mood": "calm",
+  "initial_energy": 0.5,
+  "initial_curiosity": 0.7,
+  "mood_transition_speed": 1.0,
+
+  "base_radius": 30,
+  "transparency": 0.8,
+  "fps_limit": 60,
+
+  "move_speed_multiplier": 1.0,
+  "boundary_bounce_factor": 0.7,
+  "friction": 0.95,
+
+  "mouse_activity_sensitivity": 1.0,
+  "visual_change_sensitivity": 1.0,
+  "activity_zone_size": 100,
+
+  "enable_machine_learning": false,
+  "collect_anonymous_usage_data": false,
+  "enable_motion_detection": true,
+
+  "mood_colors": {
+    "excited": ["#FFEA00", "#FF5722", "#FF9800"],
+    "curious": ["#03A9F4", "#4CAF50", "#00BCD4"],
+    "calm": ["#3F51B5", "#9C27B0", "#00BCD4"],
+    "sleepy": ["#5C6BC0", "#7986CB", "#9FA8DA"],
+    "alert": ["#F44336", "#FFFFFF", "#F44336"],
+    "annoyed": ["#F44336", "#FFEB3B", "#F44336"],
+    "sad": ["#1A237E", "#303F9F", "#3949AB"],
+    "reflective": ["#9E9E9E", "#BDBDBD", "#E0E0E0"]
+  },
+
+  "mood_properties": {
+    "excited": {
+      "pulse_speed": 0.03,
+      "move_speed": 2.5
+    },
+    "curious": {
+      "pulse_speed": 0.015,
+      "move_speed": 1.8
+    },
+    "calm": {
+      "pulse_speed": 0.008,
+      "move_speed": 0.7
+    },
+    "sleepy": {
+      "pulse_speed": 0.004,
+      "move_speed": 0.3
+    },
+    "alert": {
+      "pulse_speed": 0.05,
+      "move_speed": 3.0
+    },
+    "annoyed": {
+      "pulse_speed": 0.04,
+      "move_speed": 2.0
+    },
+    "sad": {
+      "pulse_speed": 0.005,
+      "move_speed": 0.5
+    },
+    "reflective": {
+      "pulse_speed": 0.01,
+      "move_speed": 1.0
+    }
+  },
+
+  "zones": {
+    "active": { "width": 100, "height": 100 },
+    "productivity": { "width": 300, "height": 200 },
+    "notification": { "width": 200, "height": 100 },
+    "media": { "width": 400, "height": 300 }
+  },
+
+  "advanced": {
+    "screen_analysis": {
+      "enable_text_detection": false,
+      "enable_animation_detection": true,
+      "frame_history_length": 10,
+      "change_threshold": 0.05
+    },
+    "behavior": {
+      "random_mood_chance": 0.005,
+      "energy_decay_rate": 0.001,
+      "inactivity_threshold": 10,
+      "proximity_interest_radius": 200
+    }
+  }
+}
