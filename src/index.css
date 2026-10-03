@@ -1,0 +1,143 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --kovy-bg: #0a0e1a;
+    --kovy-surface: #111827;
+    --kovy-accent: #6366f1;
+    --kovy-cyan: #22d3ee;
+    --kovy-violet: #8b5cf6;
+  }
+
+  * {
+    @apply border-kovy-border;
+  }
+
+  body {
+    @apply bg-kovy-bg text-kovy-text antialiased;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-kovy-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-kovy-border-light;
+  }
+}
+
+@layer components {
+  .kovy-glass {
+    @apply bg-kovy-surface/80 backdrop-blur-xl border border-kovy-border/50 rounded-xl;
+  }
+  .kovy-card {
+    @apply bg-kovy-surface/40 border border-kovy-border/20 rounded-lg p-3 transition-colors;
+  }
+  .kovy-input {
+    @apply bg-kovy-bg/60 border border-kovy-border rounded-lg px-3 py-2 text-sm text-kovy-text
+           focus:outline-none focus:ring-2 focus:ring-kovy-accent/40 focus:border-kovy-accent/60
+           transition-all duration-fast
+           placeholder:text-kovy-text-dim/40;
+  }
+  .kovy-btn {
+    @apply px-4 py-2 rounded-lg text-sm font-medium transition-all duration-fast
+           focus:outline-none focus-visible:ring-2 focus-visible:ring-kovy-accent/50
+           active:scale-[0.97];
+  }
+  .kovy-btn-primary {
+    @apply kovy-btn bg-kovy-accent hover:bg-kovy-accent-light text-white shadow-glow;
+  }
+  .kovy-btn-ghost {
+    @apply kovy-btn bg-transparent hover:bg-kovy-surface-light text-kovy-text-muted hover:text-kovy-text;
+  }
+  .kovy-btn-outline {
+    @apply kovy-btn border border-kovy-border hover:border-kovy-accent/50 text-kovy-text-muted hover:text-kovy-text;
+  }
+  .kovy-btn-secondary {
+    @apply kovy-btn bg-kovy-surface-light hover:bg-kovy-border/40 text-kovy-text-muted hover:text-kovy-text;
+  }
+  .kovy-btn-danger {
+    @apply kovy-btn bg-red-600/80 hover:bg-red-500 text-white border border-red-400/30;
+  }
+  .kovy-info-card {
+    @apply kovy-glass p-4 mb-4 border-l-2;
+  }
+  .kovy-badge {
+    @apply inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded font-medium;
+  }
+  .kovy-badge-new {
+    @apply kovy-badge bg-kovy-accent/20 text-kovy-accent-light;
+  }
+  .kovy-badge-active {
+    @apply kovy-badge bg-green-400/20 text-green-400;
+  }
+  .kovy-badge-warning {
+    @apply kovy-badge bg-yellow-400/20 text-yellow-400;
+  }
+  .kovy-focus-ring {
+    @apply focus-visible:ring-2 focus-visible:ring-kovy-accent/50 focus-visible:outline-none focus-visible:ring-offset-1 focus-visible:ring-offset-kovy-bg;
+  }
+  .kovy-skeleton {
+    @apply bg-gradient-to-r from-kovy-surface via-kovy-surface-light to-kovy-surface bg-[length:200%_100%] animate-shimmer rounded-lg;
+  }
+  .kovy-tab-active {
+    @apply bg-kovy-accent/15 text-kovy-accent-light border border-kovy-accent/20 border-l-2 border-l-kovy-accent;
+  }
+  .kovy-tab-inactive {
+    @apply text-kovy-text-muted hover:bg-kovy-surface-light hover:text-kovy-text border border-transparent border-l-2 border-l-transparent;
+  }
+}
+
+@layer utilities {
+  .animate-in {
+    animation: kovyFadeIn 0.2s ease-out;
+  }
+  .fade-in {
+    animation: kovyFadeIn 0.2s ease-out;
+  }
+  .zoom-in-95 {
+    animation: kovyZoomIn95 0.2s ease-out;
+  }
+  .animate-scale-in {
+    animation: kovyScaleIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .kovy-divider {
+    @apply my-1.5 mx-3 border-t border-kovy-border/20;
+  }
+  .kovy-empty-state {
+    @apply px-4 py-8 text-center text-kovy-text-dim text-sm;
+  }
+}
+
+@keyframes kovyFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes kovyZoomIn95 {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes kovyScaleIn {
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

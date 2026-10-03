@@ -1,0 +1,24 @@
+node_modules/
+dist/
+target/
+.vite/
+*.log
+*.tsbuildinfo
+*.zip
+
+# Build caches
+.cache/
+.temp/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Installer output
+installer/inno/output/
