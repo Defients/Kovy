@@ -4,13 +4,13 @@
 // ============================================================
 
 mod ai;
-mod policy;
 mod capture;
 mod capture_apps;
 mod experimental;
 mod foreground;
 mod idle;
 mod motion;
+mod policy;
 mod tray_setup;
 
 use capture::CaptureManager;
@@ -63,10 +63,7 @@ fn set_monitor_index(state: tauri::State<'_, AppState>, index: usize) {
 /// (virtual-desktop physical) pixels. Pass an empty array to clear all masks
 /// (e.g. when the overlay is hidden from capture via WDA_EXCLUDEFROMCAPTURE).
 #[tauri::command]
-fn set_overlay_masks(
-    state: tauri::State<'_, AppState>,
-    rects: Vec<capture::OverlayMaskRect>,
-) {
+fn set_overlay_masks(state: tauri::State<'_, AppState>, rects: Vec<capture::OverlayMaskRect>) {
     // Filter out zero-area rects so callers can't accidentally leave no-op masks.
     let masks: Vec<capture::OverlayMaskRect> = rects
         .into_iter()
@@ -77,24 +74,51 @@ fn set_overlay_masks(
 
 /// Best-effort Windows recording exclusion, not a guarantee against capture.
 #[tauri::command]
-fn set_hide_from_capture(app: tauri::AppHandle, state: tauri::State<'_, AppState>, hide: bool) -> String {
+fn set_hide_from_capture(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+    hide: bool,
+) -> String {
     let status;
     #[cfg(target_os = "windows")]
     {
         use tauri::Manager;
-        use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};
-        let applied = app.get_webview_window("overlay").and_then(|w| w.hwnd().ok()).is_some_and(|hwnd| unsafe {
-            SetWindowDisplayAffinity(hwnd.0 as *mut _, if hide { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE }) != 0
-        });
-        status = if !applied { "failed" } else if hide { "applied-hidden" } else { "applied-visible" };
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
+        };
+        let applied = app
+            .get_webview_window("overlay")
+            .and_then(|w| w.hwnd().ok())
+            .is_some_and(|hwnd| unsafe {
+                SetWindowDisplayAffinity(
+                    hwnd.0 as *mut _,
+                    if hide {
+                        WDA_EXCLUDEFROMCAPTURE
+                    } else {
+                        WDA_NONE
+                    },
+                ) != 0
+            });
+        status = if !applied {
+            "failed"
+        } else if hide {
+            "applied-hidden"
+        } else {
+            "applied-visible"
+        };
     }
     #[cfg(not(target_os = "windows"))]
-    { let _ = (app, hide); status = "unsupported"; }
+    {
+        let _ = (app, hide);
+        status = "unsupported";
+    }
     *state.capture_visibility.lock() = status.into();
     status.into()
 }
 #[tauri::command]
-fn capture_visibility_status(state: tauri::State<'_, AppState>) -> String { state.capture_visibility.lock().clone() }
+fn capture_visibility_status(state: tauri::State<'_, AppState>) -> String {
+    state.capture_visibility.lock().clone()
+}
 
 /// Detect whether a known screen-capture / streaming application (OBS,
 /// Streamlabs, vMix, ShareX, etc.) is currently running. Used by the
@@ -142,7 +166,9 @@ async fn fetch_weather(location: String) -> Result<String, String> {
 
 #[tauri::command]
 fn ai_store_api_key(key: String) -> Result<(), String> {
-    if key.is_empty() || key.len() > 4096 { return Err("Invalid API key length".into()); }
+    if key.is_empty() || key.len() > 4096 {
+        return Err("Invalid API key length".into());
+    }
     ai::store_api_key(&key)
 }
 
@@ -157,6 +183,7 @@ fn ai_has_api_key() -> bool {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri commands take flat invoke params
 async fn ai_request(
     state: tauri::State<'_, AppState>,
     revision: u64,
@@ -175,8 +202,14 @@ async fn ai_request(
     request_id: String,
     source: String,
 ) -> Result<ai::AiInsight, ai::AiError> {
-    let owner = state.authority.begin(request_id.clone(), revision, false,
-        send_screenshot, include_foreground_app, &screenshot_monitor_indices)?;
+    let owner = state.authority.begin(
+        request_id.clone(),
+        revision,
+        false,
+        send_screenshot,
+        include_foreground_app,
+        &screenshot_monitor_indices,
+    )?;
     owner.check()?;
     let api_key = ai::load_api_key().map_err(|_| ai::AiError::CredentialUnavailable)?;
 
@@ -211,7 +244,9 @@ async fn ai_chat(
     messages: Vec<ai::ChatMessage>,
     timeout_secs: u64,
 ) -> Result<ai::ChatResponse, ai::AiError> {
-    let owner = state.authority.begin(request_id, revision, true, false, false, &[])?;
+    let owner = state
+        .authority
+        .begin(request_id, revision, true, false, false, &[])?;
     let params = ai::ChatRequestParams {
         model,
         messages,
@@ -222,16 +257,24 @@ async fn ai_chat(
 }
 
 #[tauri::command]
-fn apply_native_policy(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>, mut policy: policy::AppliedPolicy) -> Result<u64, ai::AiError> {
+fn apply_native_policy(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+    mut policy: policy::AppliedPolicy,
+) -> Result<u64, ai::AiError> {
     policy.topology = ai::monitor_topology().unwrap_or_default();
     state.authority.apply(window.label(), policy)
 }
 
 #[tauri::command]
-fn native_policy_revision(state: tauri::State<'_, AppState>) -> u64 { state.authority.revision() }
+fn native_policy_revision(state: tauri::State<'_, AppState>) -> u64 {
+    state.authority.revision()
+}
 
 #[tauri::command]
-fn cancel_ai_request(state: tauri::State<'_, AppState>, request_id: String) { state.authority.cancel(&request_id); }
+fn cancel_ai_request(state: tauri::State<'_, AppState>, request_id: String) {
+    state.authority.cancel(&request_id);
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -244,14 +287,12 @@ pub fn run() {
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::UI::HiDpi::{
-            SetProcessDpiAwarenessContext,
-            DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+            SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
         };
         unsafe {
             // Best-effort — ignore failure (process may already be DPI-aware)
-            let _ = SetProcessDpiAwarenessContext(
-                DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 as *mut _,
-            );
+            let _ =
+                SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 as *mut _);
         }
     }
 

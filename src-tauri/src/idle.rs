@@ -60,7 +60,10 @@ mod tests {
         let b = get_idle_seconds();
         let delta = (b - a).abs();
         // Allow up to 1 second of jitter for CI environments
-        assert!(delta < 1.0, "two rapid idle calls should be close: a={a}, b={b}, delta={delta}");
+        assert!(
+            delta < 1.0,
+            "two rapid idle calls should be close: a={a}, b={b}, delta={delta}"
+        );
     }
 
     #[test]
@@ -73,6 +76,9 @@ mod tests {
         // If the test process has been running for a while without input,
         // this could be large. But on a CI machine with active input,
         // it should be reasonable. We just check it's not absurdly large.
-        assert!(idle < 86400.0, "idle seconds should be less than a day: got {idle}");
+        assert!(
+            idle < 86400.0,
+            "idle seconds should be less than a day: got {idle}"
+        );
     }
 }

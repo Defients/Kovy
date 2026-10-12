@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-native-policy-revision"
+description = "Enables the native_policy_revision command without any pre-configured scope."
+commands.allow = ["native_policy_revision"]
+
+[[permission]]
+identifier = "deny-native-policy-revision"
+description = "Denies the native_policy_revision command without any pre-configured scope."
+commands.deny = ["native_policy_revision"]

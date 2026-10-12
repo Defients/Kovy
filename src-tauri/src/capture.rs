@@ -252,8 +252,8 @@ impl CaptureManager {
 
         // Simple connected-component labeling via grid cells
         let cell_size = 16u32;
-        let cols = (width + cell_size - 1) / cell_size;
-        let rows = (height + cell_size - 1) / cell_size;
+        let cols = width.div_ceil(cell_size);
+        let rows = height.div_ceil(cell_size);
 
         let mut regions: Vec<MotionRegion> = Vec::new();
 
@@ -420,12 +420,12 @@ impl CaptureManager {
         // Cap tracked regions to avoid unbounded growth
         if self.tracked_regions.len() > 30 {
             self.tracked_regions
-                .sort_by(|a, b| b.persistence.cmp(&a.persistence));
+                .sort_by_key(|t| std::cmp::Reverse(t.persistence));
             self.tracked_regions.truncate(30);
         }
 
         // Sort result by area descending and cap at 20
-        result.sort_by(|a, b| b.area.cmp(&a.area));
+        result.sort_by_key(|r| std::cmp::Reverse(r.area));
         result.truncate(20);
         result
     }
@@ -507,7 +507,7 @@ fn merge_nearby_regions(regions: Vec<MotionRegion>, max_dist: f64) -> Vec<Motion
     }
 
     // Cap at 20 regions, sorted by area descending
-    merged.sort_by(|a, b| b.area.cmp(&a.area));
+    merged.sort_by_key(|m| std::cmp::Reverse(m.area));
     merged.truncate(20);
     merged
 }
@@ -606,7 +606,12 @@ pub fn run_capture_loop(app: tauri::AppHandle, capture: Arc<Mutex<CaptureManager
             // Downscale and convert to grayscale
             let new_w = ((vd_w as f64) * scale).max(1.0) as u32;
             let new_h = ((vd_h as f64) * scale).max(1.0) as u32;
-            let resized = image::imageops::resize(&composite, new_w, new_h, image::imageops::FilterType::Nearest);
+            let resized = image::imageops::resize(
+                &composite,
+                new_w,
+                new_h,
+                image::imageops::FilterType::Nearest,
+            );
 
             let gray: Vec<u8> = resized
                 .pixels()
@@ -716,10 +721,10 @@ pub fn run_capture_loop(app: tauri::AppHandle, capture: Arc<Mutex<CaptureManager
             // overlay masks are in virtual-desktop canvas coords, so subtract
             // the monitor's offset within the virtual desktop before scaling.
             // Virtual desktop origin across all monitors
-            let (vd_min_x, vd_min_y) = monitors.iter().fold(
-                (i32::MAX, i32::MAX),
-                |(ax, ay), mm| (ax.min(mm.x()), ay.min(mm.y())),
-            );
+            let (vd_min_x, vd_min_y) =
+                monitors.iter().fold((i32::MAX, i32::MAX), |(ax, ay), mm| {
+                    (ax.min(mm.x()), ay.min(mm.y()))
+                });
             let mon_off_x = (monitor.x() - vd_min_x) as f32;
             let mon_off_y = (monitor.y() - vd_min_y) as f32;
             let s = scale as f32;

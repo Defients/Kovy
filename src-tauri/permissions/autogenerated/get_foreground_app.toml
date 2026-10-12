@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-get-foreground-app"
+description = "Enables the get_foreground_app command without any pre-configured scope."
+commands.allow = ["get_foreground_app"]
+
+[[permission]]
+identifier = "deny-get-foreground-app"
+description = "Denies the get_foreground_app command without any pre-configured scope."
+commands.deny = ["get_foreground_app"]

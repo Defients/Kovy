@@ -28,12 +28,11 @@ v9.0.0 is the largest release in Kovy's history, organized around three pillars:
 - Removed the broken `reset_idle_timer` / `resetIdleTimer` from Rust, the Tauri invoke handler, and the frontend bridge.
 - Idle duration now reflects actual user inactivity, not time since app launch.
 
-#### Experimental Mode Hardening (D2 fix)
-- **Coordinate conversion**: Added `toScreenPosition()` and `updateVirtualDesktop()` to convert overlay-local canvas coordinates to physical screen coordinates before calling native Windows APIs. Prevents clicks/hovers from being sent to wrong screen locations, especially with multi-monitor layouts or negative monitor origins.
-- **Target validation**: Experimental interactions now query `getWindowAtPosition()` at the converted screen coordinate and reject the interaction when no target window exists — no more blindly clicking empty desktop space.
-- **Real hover**: Added `simulate_hover` Rust command that calls `SetCursorPos` without generating mouse button events. Hover interactions now perform a real cursor move instead of being a no-op.
-- **Type interactions**: Now hover first to focus the target window, then send the key.
-- All existing safety gates preserved: experimental mode enabled, explicit opt-in acknowledged, not privacy-paused, allowed behavior state, rate limiting.
+#### Experimental Mode Hardening (D2 fix — superseded by M1 resurrection)
+- **M1 note**: Physical OS input was revoked in the resurrection cycle. `simulate_click`, `simulate_hover`, `simulate_key`, `get_window_at_position`, and `get_element_info` no longer exist; the only native entry point is `experimental_interact`, which is policy-gated and currently returns "unavailable" from the production input adapter. Experimental interaction is limited to validated companion objects (toys/habitat) and remains opt-in.
+- **Coordinate conversion**: `updateVirtualDesktop()` supplies the virtual-desktop bounds used to bound candidate targets; window-level OS dispatch is not performed in this build.
+- **Target validation**: Candidates must be registered toy/habitat targets with finite in-bounds coordinates; a window at a point is not treated as a safe element.
+- All existing safety gates preserved and extended: experimental mode enabled, explicit opt-in acknowledged, not privacy-paused, allowed behavior state, rate limiting enforced in Rust.
 
 #### Dead Code Removal
 - Retired `src/settings/settingsViewMode.ts` — a deprecated module not imported by any production code. Lite/Pro mode is handled by `liteMode.ts`.
@@ -313,7 +312,7 @@ v9.0.0 is the largest release in Kovy's history, organized around three pillars:
 - **`ai.rs` module**: Full OpenRouter chat completions transport with structured `json_schema` response format, system prompt engineering (Kovy personality, privacy rules, character constraints), and configurable model selection (default: `openrouter/auto`).
 - **Screenshot capture**: When consented, captures the primary monitor via `xcap`, resizes to configurable max width (320–1920px), JPEG-compresses at configurable quality (40–90%), and sends as base64 data URL. Screenshots are never stored locally or logged.
 - **Error handling**: 10 typed error codes (`capture-failed`, `credential-unavailable`, `network`, `timeout`, `unauthorized`, `rate-limited`, `provider-error`, `invalid-response`, `unsupported-model`, `cancelled`) mapped to frontend `AIErrorCode` type.
-- **5 Tauri commands**: `ai_store_api_key`, `ai_load_api_key`, `ai_delete_api_key`, `ai_has_api_key`, `ai_request`.
+- **AI Tauri commands**: `ai_store_api_key`, `ai_delete_api_key`, `ai_has_api_key`, `ai_request`, `ai_chat`, `cancel_ai_request`, `apply_native_policy`, `native_policy_revision`. The stored API key can only be written, checked, or deleted — there is no command that returns it to JavaScript.
 - **10 Rust unit tests**: System prompt validation, user prompt construction, response schema validation, insight JSON deserialization, error display formatting.
 
 ### Secure Credential Vault
@@ -871,9 +870,9 @@ Kovy is **local-first by design**:
 ## Testing
 
 ```bash
-npm test            # Run all 1005 tests once
+npm test            # Run the frontend suite once (see docs/resurrection-m0-m1.md for current totals)
 npm run test:watch  # Watch mode
-cargo test          # Run 13 Rust tests (from src-tauri/)
+cargo test          # Run the Rust suite (from src-tauri/)
 ```
 
 ### Test Files (53)

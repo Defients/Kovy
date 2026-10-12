@@ -33,9 +33,27 @@ pub fn create_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         None::<&str>,
     )?;
     let ask_kovy = MenuItem::with_id(app, "ask_kovy", "Ask Kovy", true, None::<&str>)?;
-    let command_palette = MenuItem::with_id(app, "command_palette", "Command Palette", true, None::<&str>)?;
-    let show_digest = MenuItem::with_id(app, "show_digest", "Show Companion Digest", true, None::<&str>)?;
-    let show_chronicle = MenuItem::with_id(app, "show_chronicle", "Show Companion Chronicle", true, None::<&str>)?;
+    let command_palette = MenuItem::with_id(
+        app,
+        "command_palette",
+        "Command Palette",
+        true,
+        None::<&str>,
+    )?;
+    let show_digest = MenuItem::with_id(
+        app,
+        "show_digest",
+        "Show Companion Digest",
+        true,
+        None::<&str>,
+    )?;
+    let show_chronicle = MenuItem::with_id(
+        app,
+        "show_chronicle",
+        "Show Companion Chronicle",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Quit Kovy", true, None::<&str>)?;
 
     let menu = Menu::with_items(

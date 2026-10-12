@@ -735,32 +735,7 @@ export async function aiChat(params: {
 }
 
 // ============================================================
-// Experimental Mode — screen interaction via Windows APIs
+// Experimental Mode — physical OS input is unavailable in M1.
+// The only experimental command is `experimental_interact`,
+// dispatched through the native ActionGate (see experimentalInput.ts).
 // ============================================================
-
-export interface ElementInfo {
-  name: string;
-  elementType: string;
-  bounds: [number, number, number, number];
-  isClickable: boolean;
-}
-
-export async function simulateClick(x: number, y: number, button: "left" | "right" | "middle" = "left"): Promise<void> {
-  await invoke("simulate_click", { x, y, button });
-}
-
-export async function simulateHover(x: number, y: number): Promise<void> {
-  await invoke("simulate_hover", { x, y });
-}
-
-export async function simulateKey(key: string): Promise<void> {
-  await invoke("simulate_key", { key });
-}
-
-export async function getWindowAtPosition(x: number, y: number): Promise<ElementInfo | null> {
-  return await invoke("get_window_at_position", { x, y });
-}
-
-export async function getElementInfo(x: number, y: number): Promise<ElementInfo | null> {
-  return await invoke("get_element_info", { x, y });
-}

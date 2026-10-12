@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-experimental-interact"
+description = "Enables the experimental_interact command without any pre-configured scope."
+commands.allow = ["experimental_interact"]
+
+[[permission]]
+identifier = "deny-experimental-interact"
+description = "Denies the experimental_interact command without any pre-configured scope."
+commands.deny = ["experimental_interact"]

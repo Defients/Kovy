@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-overlay-masks"
+description = "Enables the set_overlay_masks command without any pre-configured scope."
+commands.allow = ["set_overlay_masks"]
+
+[[permission]]
+identifier = "deny-set-overlay-masks"
+description = "Denies the set_overlay_masks command without any pre-configured scope."
+commands.deny = ["set_overlay_masks"]

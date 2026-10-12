@@ -32,7 +32,7 @@ pub fn get_foreground_app_info() -> ForegroundAppInfo {
 
     unsafe {
         let hwnd = windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow();
-        if hwnd == std::ptr::null_mut() {
+        if hwnd.is_null() {
             return ForegroundAppInfo {
                 process_name: None,
                 window_title: None,
@@ -93,7 +93,7 @@ pub fn get_foreground_app_info() -> ForegroundAppInfo {
             0, // FALSE
             pid,
         );
-        if handle == std::ptr::null_mut() {
+        if handle.is_null() {
             return ForegroundAppInfo {
                 process_name: None,
                 window_title,

@@ -12,23 +12,23 @@ use serde::Serialize;
 /// display capture. When any of these are running, Kovy's overlay
 /// would otherwise appear in the captured feed.
 const CAPTURE_APP_NAMES: &[&str] = &[
-    "obs64",            // OBS Studio (64-bit)
-    "obs32",            // OBS Studio (32-bit)
-    "obs",              // OBS Studio (generic)
-    "streamlabsobs",    // Streamlabs Desktop
-    "streamlabs",       // Streamlabs (legacy)
-    "prism-live-studio",// PRISM Live Studio
-    "xsplit broadcaster",// XSplit Broadcaster
-    "xsplit core",      // XSplit Core
-    "vmix64",           // vMix (64-bit)
-    "vmix",             // vMix
-    "bandicam",         // Bandicam
-    "fraps",            // Fraps
-    "action",           // Action! recorder
-    "sharex",           // ShareX
-    "obsproject",       // OBS Project (alt binary)
-    "dxtory",           // Dxtory
-    "ms-mp4",           // Game DVR (legacy)
+    "obs64",              // OBS Studio (64-bit)
+    "obs32",              // OBS Studio (32-bit)
+    "obs",                // OBS Studio (generic)
+    "streamlabsobs",      // Streamlabs Desktop
+    "streamlabs",         // Streamlabs (legacy)
+    "prism-live-studio",  // PRISM Live Studio
+    "xsplit broadcaster", // XSplit Broadcaster
+    "xsplit core",        // XSplit Core
+    "vmix64",             // vMix (64-bit)
+    "vmix",               // vMix
+    "bandicam",           // Bandicam
+    "fraps",              // Fraps
+    "action",             // Action! recorder
+    "sharex",             // ShareX
+    "obsproject",         // OBS Project (alt binary)
+    "dxtory",             // Dxtory
+    "ms-mp4",             // Game DVR (legacy)
 ];
 
 #[derive(Debug, Clone, Serialize)]
@@ -44,7 +44,10 @@ pub struct CaptureAppStatus {
 #[cfg(target_os = "windows")]
 fn basename_lower(full: &str) -> String {
     let trimmed = full.rsplit(['\\', '/']).next().unwrap_or(full);
-    let without_ext = trimmed.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(trimmed);
+    let without_ext = trimmed
+        .rsplit_once('.')
+        .map(|(stem, _)| stem)
+        .unwrap_or(trimmed);
     without_ext.to_lowercase()
 }
 
@@ -52,17 +55,20 @@ fn basename_lower(full: &str) -> String {
 /// application is currently running, plus the matched process names.
 #[cfg(target_os = "windows")]
 pub fn detect_capture_apps() -> CaptureAppStatus {
+    use std::mem::MaybeUninit;
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
         TH32CS_SNAPPROCESS,
     };
-    use std::mem::MaybeUninit;
 
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if snapshot.is_null() || snapshot == INVALID_HANDLE_VALUE {
-            return CaptureAppStatus { running: false, matched: Vec::new() };
+            return CaptureAppStatus {
+                running: false,
+                matched: Vec::new(),
+            };
         }
 
         let mut entry: PROCESSENTRY32W = MaybeUninit::zeroed().assume_init();
@@ -101,7 +107,10 @@ pub fn detect_capture_apps() -> CaptureAppStatus {
 #[cfg(not(target_os = "windows"))]
 pub fn detect_capture_apps() -> CaptureAppStatus {
     // Non-Windows: no Toolhelp32 equivalent wired here; report nothing.
-    CaptureAppStatus { running: false, matched: Vec::new() }
+    CaptureAppStatus {
+        running: false,
+        matched: Vec::new(),
+    }
 }
 
 /// Unit tests — exercise the matcher logic without touching the OS.

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-apply-native-policy"
+description = "Enables the apply_native_policy command without any pre-configured scope."
+commands.allow = ["apply_native_policy"]
+
+[[permission]]
+identifier = "deny-apply-native-policy"
+description = "Denies the apply_native_policy command without any pre-configured scope."
+commands.deny = ["apply_native_policy"]

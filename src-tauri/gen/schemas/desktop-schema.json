@@ -177,6 +177,258 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Enables the ai_chat command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ai-chat",
+          "markdownDescription": "Enables the ai_chat command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the ai_delete_api_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ai-delete-api-key",
+          "markdownDescription": "Enables the ai_delete_api_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the ai_has_api_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ai-has-api-key",
+          "markdownDescription": "Enables the ai_has_api_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the ai_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ai-request",
+          "markdownDescription": "Enables the ai_request command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the ai_store_api_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-ai-store-api-key",
+          "markdownDescription": "Enables the ai_store_api_key command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the apply_native_policy command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-apply-native-policy",
+          "markdownDescription": "Enables the apply_native_policy command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the cancel_ai_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancel-ai-request",
+          "markdownDescription": "Enables the cancel_ai_request command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the capture_visibility_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-capture-visibility-status",
+          "markdownDescription": "Enables the capture_visibility_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the detect_capture_apps command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-detect-capture-apps",
+          "markdownDescription": "Enables the detect_capture_apps command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the experimental_interact command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-experimental-interact",
+          "markdownDescription": "Enables the experimental_interact command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the fetch_weather command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-fetch-weather",
+          "markdownDescription": "Enables the fetch_weather command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_foreground_app command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-foreground-app",
+          "markdownDescription": "Enables the get_foreground_app command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_idle_seconds command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-idle-seconds",
+          "markdownDescription": "Enables the get_idle_seconds command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_monitors command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-monitors",
+          "markdownDescription": "Enables the get_monitors command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the native_policy_revision command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-native-policy-revision",
+          "markdownDescription": "Enables the native_policy_revision command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the pause_capture command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pause-capture",
+          "markdownDescription": "Enables the pause_capture command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the resume_capture command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-resume-capture",
+          "markdownDescription": "Enables the resume_capture command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_hide_from_capture command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-hide-from-capture",
+          "markdownDescription": "Enables the set_hide_from_capture command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_monitor_index command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-monitor-index",
+          "markdownDescription": "Enables the set_monitor_index command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_overlay_masks command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-overlay-masks",
+          "markdownDescription": "Enables the set_overlay_masks command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the update_capture_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-update-capture-config",
+          "markdownDescription": "Enables the update_capture_config command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ai_chat command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ai-chat",
+          "markdownDescription": "Denies the ai_chat command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ai_delete_api_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ai-delete-api-key",
+          "markdownDescription": "Denies the ai_delete_api_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ai_has_api_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ai-has-api-key",
+          "markdownDescription": "Denies the ai_has_api_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ai_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ai-request",
+          "markdownDescription": "Denies the ai_request command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the ai_store_api_key command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-ai-store-api-key",
+          "markdownDescription": "Denies the ai_store_api_key command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the apply_native_policy command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-apply-native-policy",
+          "markdownDescription": "Denies the apply_native_policy command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancel_ai_request command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancel-ai-request",
+          "markdownDescription": "Denies the cancel_ai_request command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the capture_visibility_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-capture-visibility-status",
+          "markdownDescription": "Denies the capture_visibility_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the detect_capture_apps command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-detect-capture-apps",
+          "markdownDescription": "Denies the detect_capture_apps command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the experimental_interact command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-experimental-interact",
+          "markdownDescription": "Denies the experimental_interact command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the fetch_weather command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-fetch-weather",
+          "markdownDescription": "Denies the fetch_weather command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_foreground_app command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-foreground-app",
+          "markdownDescription": "Denies the get_foreground_app command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_idle_seconds command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-idle-seconds",
+          "markdownDescription": "Denies the get_idle_seconds command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_monitors command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-monitors",
+          "markdownDescription": "Denies the get_monitors command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the native_policy_revision command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-native-policy-revision",
+          "markdownDescription": "Denies the native_policy_revision command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pause_capture command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pause-capture",
+          "markdownDescription": "Denies the pause_capture command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the resume_capture command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-resume-capture",
+          "markdownDescription": "Denies the resume_capture command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_hide_from_capture command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-hide-from-capture",
+          "markdownDescription": "Denies the set_hide_from_capture command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_monitor_index command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-monitor-index",
+          "markdownDescription": "Denies the set_monitor_index command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_overlay_masks command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-overlay-masks",
+          "markdownDescription": "Denies the set_overlay_masks command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the update_capture_config command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-update-capture-config",
+          "markdownDescription": "Denies the update_capture_config command without any pre-configured scope."
+        },
+        {
           "description": "This permission set configures if your\napplication can enable or disable auto\nstarting the application on boot.\n\n#### Granted Permissions\n\nIt allows all to check, enable and\ndisable the automatic start on boot.\n\n\n#### This default permission set includes:\n\n- `allow-enable`\n- `allow-disable`\n- `allow-is-enabled`",
           "type": "string",
           "const": "autostart:default",

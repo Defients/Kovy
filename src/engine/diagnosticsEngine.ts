@@ -22,6 +22,19 @@ interface DiagnosticsState {
   lastMood: SurfaceMood | null;
 }
 
+// Fixed vocabularies that are safe to export — they cannot carry user data.
+const BEHAVIOR_VOCABULARY = new Set<string>([
+  "idle_float", "wander", "perch", "inspect", "orbit", "follow_burst", "nap",
+  "peek", "celebrate", "recover", "dash_inspect", "burst_orbit", "chain_seek",
+  "snap_perch", "startle", "dream", "stretch", "look_around", "yawn", "dance",
+  "hide", "play_dead", "investigate", "meditate",
+]);
+const MOOD_VOCABULARY = new Set<string>([
+  "calm", "curious", "playful", "focused", "sleepy", "excited", "overwhelmed",
+  "shy", "content", "anxious", "nostalgic", "determined",
+]);
+const MUSE_MODE_VOCABULARY = new Set<string>(["code", "writing", "design", "generic", "inactive"]);
+
 const state: DiagnosticsState = {
   enabled: false,
   entries: [],
@@ -155,20 +168,36 @@ export function exportDiagnosticsBundle(config: KovyConfig, systemSummary?: Syst
     platform: /Win/i.test(navigator.platform) ? "Windows" : "other",
     diagnosticEntries: state.entries.map(e => ({ timestamp: e.timestamp, type: e.type,
       // Identifiers and arbitrary strings are omitted, even if a caller violates TS types.
+      // Enum vocabulary values (behavior states, moods) cannot carry user data and stay.
       data: Object.fromEntries(Object.entries(e.data).filter(([key, value]) =>
-        ["fps", "count", "topScore"].includes(key) && typeof value === "number" && Number.isFinite(value))),
+        (["fps", "count", "topScore"].includes(key) && typeof value === "number" && Number.isFinite(value))
+        || (["from", "to"].includes(key) && typeof value === "string" && BEHAVIOR_VOCABULARY.has(value))
+        || (key === "mood" && typeof value === "string" && MOOD_VOCABULARY.has(value)))),
     })),
     fpsHistory: state.fpsHistory.filter(v => typeof v === "number" && Number.isFinite(v)),
   };
 
   if (systemSummary) {
-    bundle.systemSummary = {
+    const summary: Record<string, unknown> = {
       entityCount: typeof systemSummary.entityCount === "number" ? systemSummary.entityCount : 0,
       memoryEnabled: systemSummary.memoryEnabled === true,
       museActive: systemSummary.museActive === true,
+      museMode: typeof systemSummary.museMode === "string" && MUSE_MODE_VOCABULARY.has(systemSummary.museMode) ? systemSummary.museMode : "inactive",
       museOverlayCount: typeof systemSummary.museOverlayCount === "number" ? systemSummary.museOverlayCount : 0,
       gamingActive: systemSummary.gamingActive === true,
     };
+    const ms = systemSummary.milestoneSummary;
+    if (ms) {
+      summary.milestoneSummary = {
+        enabled: ms.enabled === true,
+        totalMilestones: Number.isFinite(ms.totalMilestones) ? ms.totalMilestones : 0,
+        unlockedCount: Number.isFinite(ms.unlockedCount) ? ms.unlockedCount : 0,
+        totalActiveSeconds: Number.isFinite(ms.totalActiveSeconds) ? ms.totalActiveSeconds : 0,
+        totalInteractions: Number.isFinite(ms.totalInteractions) ? ms.totalInteractions : 0,
+        maxStreak: Number.isFinite(ms.maxStreak) ? ms.maxStreak : 0,
+      };
+    }
+    bundle.systemSummary = summary;
   }
 
   if (config.privacy.diagnosticsIncludeConfig) {

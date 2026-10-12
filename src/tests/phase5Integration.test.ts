@@ -60,7 +60,7 @@ describe("Diagnostics export — privacy safety", () => {
     clearDiagnostics();
   });
 
-  it("behavior entries contain entityId but no window titles or app names", () => {
+  it("behavior entries keep enum transitions but no identifiers, titles or app names", () => {
     recordBehaviorChange("idle_float", "wander");
     recordBehaviorChange("idle_float", "inspect", "kovy-sibling-1");
     const json = exportDiagnosticsBundle(DEFAULT_CONFIG);
@@ -70,7 +70,10 @@ describe("Diagnostics export — privacy safety", () => {
     );
     expect(behaviorEntries.length).toBeGreaterThan(0);
     for (const entry of behaviorEntries) {
-      expect(entry.data.entityId).toBeDefined();
+      expect(entry.data.from).toBeDefined();
+      expect(entry.data.to).toBeDefined();
+      // Entity ids are arbitrary identifiers and are not exported
+      expect(entry.data.entityId).toBeUndefined();
       // Ensure no window title or app name fields leaked
       expect(entry.data.windowTitle).toBeUndefined();
       expect(entry.data.appName).toBeUndefined();
@@ -78,7 +81,7 @@ describe("Diagnostics export — privacy safety", () => {
     }
   });
 
-  it("mood entries contain entityId but no sensitive data", () => {
+  it("mood entries keep the enum mood but no identifiers or sensitive data", () => {
     recordMoodChange("curious");
     recordMoodChange("playful", "kovy-sibling-2");
     const json = exportDiagnosticsBundle(DEFAULT_CONFIG);
@@ -88,7 +91,8 @@ describe("Diagnostics export — privacy safety", () => {
     );
     expect(moodEntries.length).toBeGreaterThan(0);
     for (const entry of moodEntries) {
-      expect(entry.data.entityId).toBeDefined();
+      expect(entry.data.mood).toBeDefined();
+      expect(entry.data.entityId).toBeUndefined();
       expect(entry.data.windowTitle).toBeUndefined();
       expect(entry.data.processName).toBeUndefined();
     }

@@ -223,16 +223,19 @@ fn capture_screenshot_base64(
     owner: &crate::policy::Lease,
 ) -> Result<(String, Vec<String>), AiError> {
     owner.check()?;
-    if monitor_topology()? != owner.topology { return Err(AiError::PolicyDenied); }
+    if monitor_topology()? != owner.topology {
+        return Err(AiError::PolicyDenied);
+    }
     let monitors = xcap::Monitor::all().map_err(|_| AiError::CaptureFailed)?;
 
     // Select monitors: use specified indices, or fall back to primary
     let selected: Vec<(usize, xcap::Monitor)> = if monitor_indices.is_empty() {
         // Default: primary monitor only
-        let primary_idx = monitors
-            .iter()
-            .position(|m| m.is_primary())
-            .or_else(|| if monitors.is_empty() { None } else { Some(0) });
+        let primary_idx = if monitors.is_empty() {
+            None
+        } else {
+            Some(monitors.iter().position(|m| m.is_primary()).unwrap_or(0))
+        };
         match primary_idx {
             Some(idx) => vec![(idx, monitors[idx].clone())],
             None => return Err(AiError::CaptureFailed),
@@ -244,7 +247,9 @@ fn capture_screenshot_base64(
             .collect()
     };
 
-    if selected.is_empty() || (!monitor_indices.is_empty() && selected.len() != monitor_indices.len()) {
+    if selected.is_empty()
+        || (!monitor_indices.is_empty() && selected.len() != monitor_indices.len())
+    {
         return Err(AiError::CaptureFailed);
     }
 
@@ -254,7 +259,9 @@ fn capture_screenshot_base64(
 
     for (idx, monitor) in &selected {
         owner.check()?;
-        if u64::from(monitor.width()) * u64::from(monitor.height()) > 33_177_600 { return Err(AiError::CaptureFailed); }
+        if u64::from(monitor.width()) * u64::from(monitor.height()) > 33_177_600 {
+            return Err(AiError::CaptureFailed);
+        }
         let img = monitor
             .capture_image()
             .map_err(|_| AiError::CaptureFailed)?;
@@ -266,9 +273,9 @@ fn capture_screenshot_base64(
         // artifacts at that quality level, then decode back to RGBA
         let processed = if let Some(&mon_quality) = monitor_qualities.get(idx) {
             let mut jpeg_buf = std::io::Cursor::new(Vec::new());
-            let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, mon_quality);
-            enc.encode_image(&img)
-                .map_err(|_| AiError::CaptureFailed)?;
+            let mut enc =
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_buf, mon_quality);
+            enc.encode_image(&img).map_err(|_| AiError::CaptureFailed)?;
             let jpeg_bytes = jpeg_buf.into_inner();
             image::load_from_memory_with_format(&jpeg_bytes, image::ImageFormat::Jpeg)
                 .map_err(|_| AiError::CaptureFailed)?
@@ -277,7 +284,9 @@ fn capture_screenshot_base64(
             img
         };
 
-        let processed = image::DynamicImage::ImageRgba8(processed).thumbnail(max_width, max_width).to_rgba8();
+        let processed = image::DynamicImage::ImageRgba8(processed)
+            .thumbnail(max_width, max_width)
+            .to_rgba8();
         images.push(processed);
     }
 
@@ -369,7 +378,10 @@ fn build_response_schema() -> serde_json::Value {
 }
 
 /// Execute an AI request to OpenRouter and return a structured insight.
-pub async fn execute_ai_request(params: AiRequestParams, owner: &crate::policy::Lease) -> Result<AiInsight, AiError> {
+pub async fn execute_ai_request(
+    params: AiRequestParams,
+    owner: &crate::policy::Lease,
+) -> Result<AiInsight, AiError> {
     validate_insight(&params)?;
     owner.check()?;
     let system_prompt = build_system_prompt(params.max_thought_chars, params.max_whisper_chars);
@@ -486,8 +498,16 @@ pub async fn execute_ai_request(params: AiRequestParams, owner: &crate::policy::
     Ok(AiInsight {
         request_id: params.request_id,
         source: params.source,
-        thought_text: insight_json.thought.chars().take(params.max_thought_chars).collect(),
-        whisper_text: insight_json.whisper.chars().take(params.max_whisper_chars).collect(),
+        thought_text: insight_json
+            .thought
+            .chars()
+            .take(params.max_thought_chars)
+            .collect(),
+        whisper_text: insight_json
+            .whisper
+            .chars()
+            .take(params.max_whisper_chars)
+            .collect(),
         whisper_category: insight_json.category,
         confidence: insight_json.confidence,
         created_at: now,
@@ -521,7 +541,10 @@ pub struct ChatResponse {
 }
 
 /// Execute a chat request to OpenRouter and return a plain-text reply.
-pub async fn execute_chat_request(params: ChatRequestParams, owner: &crate::policy::Lease) -> Result<ChatResponse, AiError> {
+pub async fn execute_chat_request(
+    params: ChatRequestParams,
+    owner: &crate::policy::Lease,
+) -> Result<ChatResponse, AiError> {
     validate_chat(&params)?;
     owner.check()?;
     let api_key = load_api_key().map_err(|_| AiError::CredentialUnavailable)?;
@@ -621,7 +644,7 @@ pub fn store_api_key(key: &str) -> Result<(), String> {
     let key_bytes: Vec<u16> = key.encode_utf16().chain(std::iter::once(0)).collect();
     let key_byte_len = (key_bytes.len() * 2) as u32;
 
-    let mut cred = CREDENTIALW {
+    let cred = CREDENTIALW {
         Flags: 0,
         Type: CRED_TYPE_GENERIC,
         TargetName: target.as_ptr() as *mut _,
@@ -640,7 +663,7 @@ pub fn store_api_key(key: &str) -> Result<(), String> {
     };
 
     unsafe {
-        if CredWriteW(&mut cred, 0) != 0 {
+        if CredWriteW(&cred, 0) != 0 {
             Ok(())
         } else {
             Err(format!(
@@ -719,6 +742,81 @@ pub fn delete_api_key() -> Result<(), String> {
     Err("Credential vault not supported on this platform".to_string())
 }
 
+// Bound all untrusted inputs before credentials, capture, allocation or network I/O.
+fn valid_common(model: &str, timeout: u64) -> bool {
+    !model.is_empty() && model.len() <= 200 && (1..=60).contains(&timeout)
+}
+pub fn validate_insight(p: &AiRequestParams) -> Result<(), AiError> {
+    let mut indices = p.screenshot_monitor_indices.clone();
+    indices.sort_unstable();
+    indices.dedup();
+    if !valid_common(&p.model, p.timeout_secs)
+        || !(64..=2048).contains(&p.screenshot_max_width)
+        || !(10..=90).contains(&p.screenshot_jpeg_quality)
+        || p.screenshot_monitor_indices.len() > 4
+        || indices.len() != p.screenshot_monitor_indices.len()
+        || indices.iter().any(|i| *i > 31)
+        || p.screenshot_monitor_qualities.len() > 4
+        || p.screenshot_monitor_qualities
+            .iter()
+            .any(|(i, q)| !indices.contains(i) || !(10..=90).contains(q))
+        || p.foreground_app.as_ref().is_some_and(|s| s.len() > 512)
+        || p.foreground_title.as_ref().is_some_and(|s| s.len() > 2048)
+        || !(1..=500).contains(&p.max_thought_chars)
+        || !(1..=1000).contains(&p.max_whisper_chars)
+        || !matches!(p.source.as_str(), "ask-kovy" | "periodic")
+    {
+        return Err(AiError::InvalidInput);
+    }
+    Ok(())
+}
+pub fn validate_chat(p: &ChatRequestParams) -> Result<(), AiError> {
+    if !valid_common(&p.model, p.timeout_secs)
+        || p.messages.is_empty()
+        || p.messages.len() > 101
+        || p.messages.iter().any(|m| {
+            m.content.len() > 16_000 || !matches!(m.role.as_str(), "system" | "user" | "assistant")
+        })
+        || p.messages.iter().map(|m| m.content.len()).sum::<usize>() > 128_000
+    {
+        return Err(AiError::InvalidInput);
+    }
+    Ok(())
+}
+async fn read_response(mut response: reqwest::Response) -> Result<OpenRouterResponse, AiError> {
+    const LIMIT: usize = 262_144;
+    if response.content_length().is_some_and(|n| n > LIMIT as u64) {
+        return Err(AiError::InvalidResponse);
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| AiError::Network)? {
+        if bytes.len() + chunk.len() > LIMIT {
+            return Err(AiError::InvalidResponse);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&bytes).map_err(|_| AiError::InvalidResponse)
+}
+
+/// Bind monitor consent to the current native display topology, including primary selection.
+pub fn monitor_topology() -> Result<Vec<String>, AiError> {
+    let monitors = xcap::Monitor::all().map_err(|_| AiError::CaptureFailed)?;
+    Ok(monitors
+        .iter()
+        .map(|m| {
+            format!(
+                "{}:{}:{}:{}:{}:{}",
+                m.name(),
+                m.x(),
+                m.y(),
+                m.width(),
+                m.height(),
+                m.is_primary()
+            )
+        })
+        .collect())
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -778,7 +876,10 @@ mod tests {
         assert!(prompt.ends_with(title));
         let ascii = "x".repeat(200);
         let prompt = build_user_prompt(&None, &Some(&ascii));
-        assert_eq!(prompt.split("The window title is: ").nth(1).unwrap(), "x".repeat(100));
+        assert_eq!(
+            prompt.split("The window title is: ").nth(1).unwrap(),
+            "x".repeat(100)
+        );
     }
 
     #[test]
@@ -834,48 +935,4 @@ mod tests {
         assert_eq!(parsed.category, "encouragement");
         assert!((parsed.confidence - 0.7).abs() < 0.001);
     }
-}
-
-// Bound all untrusted inputs before credentials, capture, allocation or network I/O.
-fn valid_common(model: &str, timeout: u64) -> bool {
-    !model.is_empty() && model.len() <= 200 && (1..=60).contains(&timeout)
-}
-pub fn validate_insight(p: &AiRequestParams) -> Result<(), AiError> {
-    let mut indices = p.screenshot_monitor_indices.clone(); indices.sort_unstable(); indices.dedup();
-    if !valid_common(&p.model, p.timeout_secs) || !(64..=2048).contains(&p.screenshot_max_width)
-        || !(10..=90).contains(&p.screenshot_jpeg_quality) || p.screenshot_monitor_indices.len() > 4
-        || indices.len() != p.screenshot_monitor_indices.len() || indices.iter().any(|i| *i > 31)
-        || p.screenshot_monitor_qualities.len() > 4
-        || p.screenshot_monitor_qualities.iter().any(|(i,q)| !indices.contains(i) || !(10..=90).contains(q))
-        || p.foreground_app.as_ref().is_some_and(|s| s.len() > 512)
-        || p.foreground_title.as_ref().is_some_and(|s| s.len() > 2048)
-        || !(1..=500).contains(&p.max_thought_chars) || !(1..=1000).contains(&p.max_whisper_chars)
-        || !matches!(p.source.as_str(), "ask-kovy" | "periodic") {
-        return Err(AiError::InvalidInput);
-    }
-    Ok(())
-}
-pub fn validate_chat(p: &ChatRequestParams) -> Result<(), AiError> {
-    if !valid_common(&p.model, p.timeout_secs) || p.messages.is_empty() || p.messages.len() > 101
-        || p.messages.iter().any(|m| m.content.len() > 16_000 || !matches!(m.role.as_str(), "system" | "user" | "assistant"))
-        || p.messages.iter().map(|m| m.content.len()).sum::<usize>() > 128_000 {
-        return Err(AiError::InvalidInput);
-    }
-    Ok(())
-}
-async fn read_response(mut response: reqwest::Response) -> Result<OpenRouterResponse, AiError> {
-    const LIMIT: usize = 262_144;
-    if response.content_length().is_some_and(|n| n > LIMIT as u64) { return Err(AiError::InvalidResponse); }
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|_| AiError::Network)? {
-        if bytes.len() + chunk.len() > LIMIT { return Err(AiError::InvalidResponse); }
-        bytes.extend_from_slice(&chunk);
-    }
-    serde_json::from_slice(&bytes).map_err(|_| AiError::InvalidResponse)
-}
-
-/// Bind monitor consent to the current native display topology, including primary selection.
-pub fn monitor_topology() -> Result<Vec<String>, AiError> {
-    let monitors = xcap::Monitor::all().map_err(|_| AiError::CaptureFailed)?;
-    Ok(monitors.iter().map(|m| format!("{}:{}:{}:{}:{}:{}", m.name(), m.x(), m.y(), m.width(), m.height(), m.is_primary())).collect())
 }
