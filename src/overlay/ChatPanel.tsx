@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { useConfigStore } from "@/store/configStore";
 import { useKovyStore } from "@/store/kovyStore";
 import { ChatEngine, type ChatTurn } from "@/engine/chatEngine";
+import { AI_REQUEST_BLOCK_MESSAGES, getAIRequestBlockReason } from "@/engine/aiRequestPolicy";
+import { getLiveChatRequestBlockReason, subscribeAIRequestPolicy } from "@/lib/aiRuntimePolicy";
 
 interface ChatPanelProps {
   visible: boolean;
@@ -29,15 +31,27 @@ export function ChatPanel({ visible, onClose }: ChatPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const appliedConfig = useConfigStore((s) => s.appliedConfig);
+  const isPrivacyPaused = useKovyStore((s) => s.isPrivacyPaused);
+  const isPaused = useKovyStore((s) => s.isPaused);
   const store = useKovyStore;
+  const blockReason = getAIRequestBlockReason({ enabled: appliedConfig.ai.enabled, isPrivacyPaused, isPaused });
+  const blockedMessage = blockReason ? AI_REQUEST_BLOCK_MESSAGES[blockReason]
+    : !appliedConfig.chat.enabled ? "Chat is not enabled" : null;
 
   // Initialize chat engine
   useEffect(() => {
     if (!engineRef.current) {
-      engineRef.current = new ChatEngine();
+      engineRef.current = new ChatEngine(getLiveChatRequestBlockReason);
     }
+    const engine = engineRef.current;
+    const unsubscribePolicy = subscribeAIRequestPolicy((reason) => {
+      engine.cancelPending(reason);
+      setIsTyping(false);
+      setError(engine.getState().error);
+    }, getLiveChatRequestBlockReason);
     return () => {
-      engineRef.current?.destroy();
+      unsubscribePolicy();
+      engine.destroy();
       engineRef.current = null;
     };
   }, []);
@@ -47,6 +61,7 @@ export function ChatPanel({ visible, onClose }: ChatPanelProps) {
     if (engineRef.current && appliedConfig.chat) {
       engineRef.current.updateConfig(appliedConfig.chat);
       setHistory(engineRef.current.getHistory());
+      setIsTyping(engineRef.current.getState().isTyping);
     }
   }, [appliedConfig.chat]);
 
@@ -65,18 +80,18 @@ export function ChatPanel({ visible, onClose }: ChatPanelProps) {
   }, [visible]);
 
   const handleSend = useCallback(async () => {
-    if (!input.trim() || !engineRef.current) return;
+    const engine = engineRef.current;
+    if (!input.trim() || !engine || engine.getState().isTyping || blockedMessage) return;
     const text = input.trim();
     setInput("");
     setError(null);
 
     const state = store.getState();
-    const aiConfig = appliedConfig.ai;
-    const bondState = engineRef.current ? null : null; // bond state would come from engine
+    const aiConfig = useConfigStore.getState().appliedConfig.ai;
 
     setIsTyping(true);
     try {
-      const reply = await engineRef.current.sendMessage(text, {
+      const pending = engine.sendMessage(text, {
         kovyName: "Kovy",
         mood: state.surfaceMood,
         bondLevel: null,
@@ -84,19 +99,17 @@ export function ChatPanel({ visible, onClose }: ChatPanelProps) {
         model: aiConfig.model,
         timeoutSecs: aiConfig.requestTimeoutSec,
       });
-
-      if (reply === null) {
-        const chatState = engineRef.current.getState();
-        setError(chatState.error);
-      }
-
-      setHistory(engineRef.current.getHistory());
+      setHistory(engine.getHistory());
+      await pending;
+      if (engineRef.current !== engine) return;
+      setError(engine.getState().error);
+      setHistory(engine.getHistory());
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Chat failed");
+      if (engineRef.current === engine) setError(err instanceof Error ? err.message : "Chat failed");
     } finally {
-      setIsTyping(false);
+      if (engineRef.current === engine) setIsTyping(engine.getState().isTyping);
     }
-  }, [input, appliedConfig.ai, store]);
+  }, [input, blockedMessage, store]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -179,9 +192,9 @@ export function ChatPanel({ visible, onClose }: ChatPanelProps) {
             </div>
           </div>
         )}
-        {error && (
+        {(blockedMessage ?? error) && (
           <div className="text-center text-xs text-red-400 py-1">
-            {error}
+            {blockedMessage ?? error}
           </div>
         )}
       </div>
@@ -196,11 +209,11 @@ export function ChatPanel({ visible, onClose }: ChatPanelProps) {
           onKeyDown={handleKeyDown}
           placeholder="Type a message..."
           className="flex-1 bg-transparent text-sm text-kovy-text placeholder-kovy-text-dim outline-none"
-          disabled={isTyping}
+          disabled={isTyping || blockedMessage !== null}
         />
         <button
           onClick={handleSend}
-          disabled={!input.trim() || isTyping}
+          disabled={!input.trim() || isTyping || blockedMessage !== null}
           className="text-kovy-accent hover:text-kovy-accent/80 disabled:opacity-30 transition-colors"
           aria-label="Send message"
         >

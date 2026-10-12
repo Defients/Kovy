@@ -1,175 +1,73 @@
-// ============================================================
-// Experimental Engine — manages screen interaction state
-//
-// Safety:
-// - Rate limiting enforced (default 5s between interactions)
-// - Only interacts when Kovy is in curious/playful states
-// - Privacy pause disables all interactions
-// - All interactions are logged to journal
-//
-// v9.0 hardening (D2 fix):
-// - Converts overlay-local coordinates to screen coordinates
-//   before calling native APIs (SetCursorPos, WindowFromPoint, etc.)
-// - Verifies a window actually exists at the target point before
-//   interacting, instead of clicking random empty space
-// - Hover now actually moves the cursor via simulate_hover
-// ============================================================
-
 import type { ExperimentalConfig, ExperimentalInteraction, Vec2, BehaviorState } from "@/store/types";
 import type { VirtualDesktopBounds } from "@/lib/monitorUtils";
-import { simulateClick, simulateHover, simulateKey, getWindowAtPosition, type ElementInfo } from "@/lib/tauriBridge";
+import { nativeExperimentalInput, type ExperimentalInputAdapter, type InteractionTarget } from "./experimentalInput";
 
 const INTERACTION_BEHAVIORS: BehaviorState[] = ["inspect", "wander", "orbit"];
-
 export interface InteractionLogEntry {
-  timestamp: number;
-  type: ExperimentalInteraction;
-  position: Vec2;
-  targetElement: string;
-  success: boolean;
-  error?: string;
+  timestamp: number; type: ExperimentalInteraction; position: Vec2;
+  targetElement: string; success: boolean; error?: string;
 }
-
 export class ExperimentalEngine {
   private config: ExperimentalConfig | null = null;
-  private lastInteractionTime = 0;
+  private lastInteractionTime = -Infinity;
   private log: InteractionLogEntry[] = [];
-  private maxLogSize = 50;
+  private targets: InteractionTarget[] = [];
+  private generation = 0;
+  private inFlight = false;
   private virtualDesktop: VirtualDesktopBounds = { x: 0, y: 0, width: 1920, height: 1080 };
 
+  constructor(private readonly input: ExperimentalInputAdapter = nativeExperimentalInput,
+    private readonly isPaused: () => boolean = () => true) {}
+
   updateConfig(config: ExperimentalConfig): void {
-    this.config = config;
+    if (JSON.stringify(config) !== JSON.stringify(this.config)) this.generation++;
+    this.config = structuredClone(config);
   }
-
-  /// Set the virtual desktop bounds used for overlay-local → screen
-  /// coordinate conversion. Must be called before tryInteract.
-  updateVirtualDesktop(vd: VirtualDesktopBounds): void {
-    this.virtualDesktop = vd;
+  updateTargets(targets: InteractionTarget[]): void { this.targets = targets.map(t => ({ ...t })); }
+  updateVirtualDesktop(vd: VirtualDesktopBounds): void { this.virtualDesktop = vd; }
+  isEnabled(): boolean { return this.config?.enabled ?? false; }
+  private authorized(behavior: BehaviorState, paused: boolean): boolean {
+    return !!this.config?.enabled && this.config.optInAcknowledged && this.config.autoInteract
+      && this.config.targetMode === "toys" && !paused && !this.isPaused()
+      && INTERACTION_BEHAVIORS.includes(behavior);
   }
-
-  isEnabled(): boolean {
-    return this.config?.enabled ?? false;
+  canInteract(behavior: BehaviorState, paused: boolean): boolean {
+    return this.authorized(behavior, paused) && !this.inFlight && this.getCooldownRemaining() === 0;
   }
-
-  canInteract(currentBehavior: BehaviorState, isPrivacyPaused: boolean): boolean {
-    if (!this.config?.enabled) return false;
-    if (!this.config.optInAcknowledged) return false;
-    if (isPrivacyPaused) return false;
-    if (!INTERACTION_BEHAVIORS.includes(currentBehavior)) return false;
-
-    const now = Date.now();
-    const elapsed = (now - this.lastInteractionTime) / 1000;
-    if (elapsed < this.config.rateLimitSec) return false;
-
-    return true;
+  private valid(target: InteractionTarget, origin: Vec2): boolean {
+    return Number.isFinite(target.x) && Number.isFinite(target.y)
+      && (target.id.startsWith("toy:") || target.id.startsWith("habitat:"))
+      && target.x >= 0 && target.y >= 0 && target.x < this.virtualDesktop.width && target.y < this.virtualDesktop.height
+      && Math.hypot(target.x - origin.x, target.y - origin.y) <= (this.config?.interactionRadius ?? 0)
+      && this.targets.some(t => t.id === target.id && t.x === target.x && t.y === target.y);
   }
-
-  async tryInteract(
-    kovyPosOverlayLocal: Vec2,
-    currentBehavior: BehaviorState,
-    isPrivacyPaused: boolean,
-  ): Promise<InteractionLogEntry | null> {
-    if (!this.canInteract(currentBehavior, isPrivacyPaused)) return null;
-    if (!this.config) return null;
-
-    const allowed = this.config.allowedInteractions;
-    if (allowed.length === 0) return null;
-
-    const interactionType = allowed[Math.floor(Math.random() * allowed.length)];
-    const radius = this.config.interactionRadius;
-
-    // Pick a random point within interaction radius (overlay-local coords)
-    const angle = Math.random() * Math.PI * 2;
-    const dist = Math.random() * radius;
-    const targetOverlayLocal: Vec2 = {
-      x: Math.round(kovyPosOverlayLocal.x + Math.cos(angle) * dist),
-      y: Math.round(kovyPosOverlayLocal.y + Math.sin(angle) * dist),
-    };
-
-    // Convert overlay-local coordinates to screen coordinates
-    // The virtual desktop offset maps canvas pixels to physical screen pixels
-    const targetScreen: Vec2 = {
-      x: Math.round(targetOverlayLocal.x + this.virtualDesktop.x),
-      y: Math.round(targetOverlayLocal.y + this.virtualDesktop.y),
-    };
-
-    let success = false;
-    let error: string | undefined;
-    let targetElement = "unknown";
-
+  async tryInteract(origin: Vec2, behavior: BehaviorState, paused: boolean): Promise<InteractionLogEntry | null> {
+    if (!this.canInteract(behavior, paused)) return null;
+    const actions = this.config!.allowedInteractions.filter((a): a is "click" | "hover" => a === "click" || a === "hover");
+    const target = this.targets.find(t => this.valid(t, origin));
+    if (!target || !actions.length) return null;
+    const action = actions[0];
+    const generation = this.generation;
+    this.inFlight = true;
+    this.lastInteractionTime = Date.now(); // Reserve before the first await, including failures.
     try {
-      // Verify a window actually exists at the target screen position.
-      // This prevents clicking empty desktop space or off-screen areas.
-      const elem = await getWindowAtPosition(targetScreen.x, targetScreen.y);
-      if (!elem) {
-        // No window at this position — skip interaction
-        this.lastInteractionTime = Date.now();
-        const entry: InteractionLogEntry = {
-          timestamp: Date.now(),
-          type: interactionType,
-          position: targetScreen,
-          targetElement: "empty",
-          success: false,
-          error: "No window at target position",
-        };
-        this.log.unshift(entry);
-        if (this.log.length > this.maxLogSize) this.log.pop();
-        return entry;
-      }
-
-      targetElement = elem.name || elem.elementType || "element";
-
-      if (interactionType === "click") {
-        await simulateClick(targetScreen.x, targetScreen.y, "left");
-        success = true;
-      } else if (interactionType === "hover") {
-        // Actually move the cursor to the target position (no click)
-        await simulateHover(targetScreen.x, targetScreen.y);
-        success = true;
-      } else if (interactionType === "type") {
-        // Focus the window first by moving cursor there, then send key
-        await simulateHover(targetScreen.x, targetScreen.y);
-        await simulateKey("space");
-        success = true;
-      }
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-      success = false;
-    }
-
-    this.lastInteractionTime = Date.now();
-
-    const entry: InteractionLogEntry = {
-      timestamp: Date.now(),
-      type: interactionType,
-      position: targetScreen,
-      targetElement,
-      success,
-      error,
-    };
-
-    this.log.unshift(entry);
-    if (this.log.length > this.maxLogSize) this.log.pop();
-
-    return entry;
+      const resolved = await this.input.lookup({ ...target });
+      if (generation !== this.generation || !this.authorized(behavior, paused)
+          || !resolved || !this.valid(resolved, origin) || resolved.id !== target.id) return null;
+      await this.input.dispatch(resolved, action);
+      if (generation !== this.generation || !this.authorized(behavior, paused)) return null;
+      return this.record(action, resolved, true);
+    } catch {
+      if (generation !== this.generation || !this.authorized(behavior, paused)) return null;
+      return this.record(action, target, false, "Desktop input is unavailable or blocked");
+    } finally { this.inFlight = false; }
   }
-
-  getLog(): InteractionLogEntry[] {
-    return [...this.log];
+  private record(type: ExperimentalInteraction, target: InteractionTarget, success: boolean, error?: string): InteractionLogEntry {
+    const entry = { timestamp: Date.now(), type, position: { x: target.x, y: target.y }, targetElement: "local companion object", success, error };
+    this.log.unshift(entry); this.log = this.log.slice(0, 50); return entry;
   }
-
-  getCooldownRemaining(): number {
-    if (!this.config) return 0;
-    const elapsed = (Date.now() - this.lastInteractionTime) / 1000;
-    return Math.max(0, this.config.rateLimitSec - elapsed);
-  }
-
-  clearLog(): void {
-    this.log = [];
-  }
-
-  destroy(): void {
-    this.config = null;
-    this.log = [];
-  }
+  getLog(): InteractionLogEntry[] { return [...this.log]; }
+  getCooldownRemaining(): number { return Math.max(0, Math.max(1, this.config?.rateLimitSec ?? 1) - (Date.now() - this.lastInteractionTime) / 1000); }
+  clearLog(): void { this.log = []; }
+  destroy(): void { this.generation++; this.config = null; this.targets = []; this.log = []; }
 }

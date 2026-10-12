@@ -2,6 +2,7 @@
 // Typed Tauri bridge — wires frontend config to Rust backend
 // ============================================================
 
+import { invokeOwnedAI } from "./nativePolicy";
 import type { KovyConfig, MonitorBounds } from "@/store/types";
 
 // --- Invoke wrappers ---
@@ -11,7 +12,7 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
     const { invoke: tauriInvoke } = await import("@tauri-apps/api/core");
     return await tauriInvoke<T>(cmd, args);
   } catch (e) {
-    console.warn(`Kovy bridge: ${cmd} failed`, e);
+    console.warn(`Kovy bridge: ${cmd} failed`);
     throw e;
   }
 }
@@ -65,17 +66,14 @@ export async function setMonitorIndex(index: number): Promise<void> {
   } catch { /* not in Tauri */ }
 }
 
-/**
- * Tell the backend whether the overlay window should be hidden from screen
- * capture (WDA_EXCLUDEFROMCAPTURE on Windows). When hidden, OBS/recording
- * cannot see Kovy and Kovy's own analyzer won't self-detect. When visible,
- * the frontend must additionally call setOverlayMask so Kovy's analyzer
- * ignores its own rendered body.
- */
-export async function setHideFromCapture(hide: boolean): Promise<void> {
-  try {
-    await invoke("set_hide_from_capture", { hide });
-  } catch { /* not in Tauri */ }
+export type CaptureVisibilityStatus = "not-applied" | "applied-hidden" | "applied-visible" | "failed" | "unsupported" | "unavailable";
+export async function getCaptureVisibilityStatus(): Promise<CaptureVisibilityStatus> {
+  try { return await invoke<CaptureVisibilityStatus>("capture_visibility_status"); }
+  catch { return "unavailable"; }
+}
+export async function setHideFromCapture(hide: boolean): Promise<CaptureVisibilityStatus> {
+  try { return await invoke<CaptureVisibilityStatus>("set_hide_from_capture", { hide }); }
+  catch { return "unavailable"; }
 }
 
 /**
@@ -616,15 +614,8 @@ export function stopCurrentMonitorTracking(): void {
 export async function syncConfigToBackend(config: KovyConfig): Promise<void> {
   await updateCaptureConfig(config);
 
-  // Apply the screen-capture visibility preference. When hidden, the overlay
-  // is excluded from all capture (OBS, screenshots, Kovy's own analyzer).
-  // When visible, the overlay mask (sent separately from the render loop)
-  // keeps Kovy from self-detecting its own body.
+  // Apply best-effort recording exclusion; masks remain active as defense in depth.
   await setHideFromCapture(config.privacy.hideFromCapture);
-  if (config.privacy.hideFromCapture) {
-    // Overlay is invisible to the analyzer — clear any stale masks.
-    await setOverlayMasks([]);
-  }
 
   // Set monitor index based on monitor mode
   if (config.general.monitorMode === "primary") {
@@ -668,14 +659,6 @@ export async function aiStoreApiKey(key: string): Promise<void> {
   await invoke("ai_store_api_key", { key });
 }
 
-export async function aiLoadApiKey(): Promise<string | null> {
-  try {
-    return await invoke<string>("ai_load_api_key");
-  } catch {
-    return null;
-  }
-}
-
 export async function aiDeleteApiKey(): Promise<void> {
   try {
     await invoke("ai_delete_api_key");
@@ -705,8 +688,8 @@ export async function aiRequest(params: {
   timeoutSecs: number;
   requestId: string;
   source: string;
-}): Promise<AiInsightResponse> {
-  return await invoke<AiInsightResponse>("ai_request", {
+}, signal?: AbortSignal): Promise<AiInsightResponse> {
+  return await invokeOwnedAI<AiInsightResponse>("ai_request", {
     model: params.model,
     sendScreenshot: params.sendScreenshot,
     screenshotMaxWidth: params.screenshotMaxWidth,
@@ -721,7 +704,7 @@ export async function aiRequest(params: {
     timeoutSecs: params.timeoutSecs,
     requestId: params.requestId,
     source: params.source,
-  });
+  }, signal);
 }
 
 // --- Chat bridge (v9.0) ---
@@ -738,15 +721,17 @@ export interface ChatResponse {
 }
 
 export async function aiChat(params: {
+  requestId: string;
   model: string;
   messages: ChatMessage[];
   timeoutSecs: number;
-}): Promise<ChatResponse> {
-  return await invoke<ChatResponse>("ai_chat", {
+}, signal?: AbortSignal): Promise<ChatResponse> {
+  return await invokeOwnedAI<ChatResponse>("ai_chat", {
+    requestId: params.requestId,
     model: params.model,
     messages: params.messages,
     timeoutSecs: params.timeoutSecs,
-  });
+  }, signal);
 }
 
 // ============================================================

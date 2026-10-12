@@ -1,11 +1,13 @@
 {
   "identifier": "default",
   "description": "Default capabilities for Kovy",
-  "windows": ["*"],
+  "windows": [
+    "settings",
+    "overlay"
+  ],
   "permissions": [
     "core:default",
     "core:window:default",
-    "core:window:allow-create",
     "core:window:allow-close",
     "core:window:allow-show",
     "core:window:allow-hide",
@@ -29,6 +31,15 @@
     "global-shortcut:allow-is-registered",
     "store:default",
     "autostart:default",
-    "sql:default"
+    "sql:default",
+    "allow-get-monitors",
+    "allow-get-foreground-app",
+    "allow-get-idle-seconds",
+    "allow-set-hide-from-capture",
+    "allow-capture-visibility-status",
+    "allow-ai-has-api-key",
+    "allow-native-policy-revision",
+    "allow-ai-request",
+    "allow-cancel-ai-request"
   ]
 }

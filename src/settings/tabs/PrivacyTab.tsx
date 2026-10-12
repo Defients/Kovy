@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { getCaptureVisibilityStatus, type CaptureVisibilityStatus } from "@/lib/tauriBridge";
 import { useConfigStore } from "@/store/configStore";
 import { SettingSection, SettingRow } from "../components/SettingRow";
 import { SwitchSetting } from "../components/SwitchSetting";
@@ -13,6 +15,14 @@ export function PrivacyTab() {
   const appliedConfig = useConfigStore((s) => s.appliedConfig);
   const update = useConfigStore((s) => s.updateDraftPrivacy);
   const resetSection = useConfigStore((s) => s.resetSection);
+  const [captureStatus, setCaptureStatus] = useState<CaptureVisibilityStatus>("not-applied");
+  useEffect(() => {
+    let active = true;
+    const refresh = () => { void getCaptureVisibilityStatus().then(s => { if (active) setCaptureStatus(s); }); };
+    refresh();
+    const timer = setInterval(refresh, 2000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
 
   const handleExportDiagnostics = () => {
     const json = exportDiagnosticsBundle(appliedConfig);
@@ -30,10 +40,14 @@ export function PrivacyTab() {
   return (
     <div className="space-y-2">
       <InfoCard title="Privacy-First Design">
-        Kovy processes everything locally on your device. No screenshots are uploaded.
-        No data leaves your computer. Screen analysis is real-time only — zero frames
-        are retained after processing. Kovy does not log keystrokes, read clipboard
-        contents, or inspect typed passwords.
+        Kovy's motion analysis runs locally. It keeps the previous downscaled grayscale
+        frame in memory to compare changes; it does not save screenshots to disk.
+        Local memories, journals, and optional chat history can persist on this device.
+        If you enable AI, chat messages and opted-in screen context
+        are sent to OpenRouter; screenshots are sent only when you enable screenshot
+        sharing in AI settings and Apply. Privacy Pause blocks new AI requests, asks
+        active transport to stop, and suppresses pending replies. Requests already sent cannot be recalled. Kovy's motion
+        analysis does not log keystrokes or read clipboard contents.
       </InfoCard>
 
       <SettingSection title="Analysis Controls" onReset={() => resetSection("privacy")}>
@@ -43,21 +57,21 @@ export function PrivacyTab() {
           checked={config.ocrDisabled}
           onChange={(v) => update({ ocrDisabled: v })}
         />
-        <SwitchSetting
-          label="Zero frame retention"
-          description="Frames are discarded immediately after analysis (always on)"
-          checked={config.retainZeroFrames}
-          onChange={(v) => update({ retainZeroFrames: v })}
-        />
+        <SettingRow label="Screenshot persistence" description="Analysis uses a transient previous grayscale frame. Analysis and AI screenshots are not written to disk; the legacy retention preference does not change this policy.">
+          <span className="text-xs text-green-400">No disk storage</span>
+        </SettingRow>
       </SettingSection>
 
       <SettingSection title="Screen Capture Visibility">
         <SwitchSetting
           label="Hide Kovy from screen capture"
-          description="When ON, Kovy is invisible to OBS, screen recording, and screenshots (Windows WDA_EXCLUDEFROMCAPTURE). When OFF, Kovy is visible to OBS display capture so you can stream or record it."
+          description="Requests Windows recording exclusion. Support varies by capture tool and Windows version; this cannot guarantee that Kovy is unrecordable. Apply to change the request."
           checked={config.hideFromCapture}
           onChange={(v) => update({ hideFromCapture: v })}
         />
+        <SettingRow label="Recording exclusion status" description="Reported by the native window; a saved preference alone does not prove it applied.">
+          <span className="text-xs text-kovy-text" role="status">{captureStatus === "applied-hidden" ? "Applied (best effort)" : captureStatus === "applied-visible" ? "Visible" : captureStatus === "failed" ? "Failed" : captureStatus === "unsupported" ? "Unsupported" : captureStatus === "unavailable" ? "Native status unavailable" : "Not yet applied"}</span>
+        </SettingRow>
         <SwitchSetting
           label="Auto-hide when OBS / streaming apps detected"
           description="Periodically checks for OBS, Streamlabs, vMix, ShareX, and other capture tools. When one is running, Kovy automatically hides from capture and restores your preference when it exits. Only process names are checked — no window content is read."
@@ -71,9 +85,8 @@ export function PrivacyTab() {
             themselves. Use a display or window capture in OBS to see Kovy.
           </p>
           <p className="text-[10px] text-kovy-text-muted leading-relaxed">
-            <strong>Hidden from capture (ON):</strong> Kovy cannot be recorded by any tool. This
-            is the most private mode and also prevents all self-detection. OBS will show a blank
-            area where Kovy would be.
+            <strong>Recording exclusion requested (ON):</strong> Compatible tools may omit Kovy.
+            Other recording methods can still capture the window. Motion-analysis masks remain active.
           </p>
         </div>
       </SettingSection>
@@ -100,13 +113,13 @@ export function PrivacyTab() {
             </div>
             <SwitchSetting
               label="Include sanitized config snapshot"
-              description="Include your settings (minus sensitive app lists) in exported diagnostics"
+              description="Include selected feature flags only. App rules, locations, profiles, shadow settings, names, and other configuration are omitted. Configuration and Soul exports are separate and may contain personal data."
               checked={config.diagnosticsIncludeConfig}
               onChange={(v) => update({ diagnosticsIncludeConfig: v })}
             />
             <SwitchSetting
               label="Include error logs"
-              description="Include error messages in diagnostics data"
+              description="Include error occurrence counts and timestamps; raw messages and provider responses are omitted"
               checked={config.diagnosticsIncludeErrors}
               onChange={(v) => update({ diagnosticsIncludeErrors: v })}
             />
@@ -138,17 +151,17 @@ export function PrivacyTab() {
         <SettingRow label="Cursor position" description="Used for avoidance, cursor-interest, and monitor tracking">
           <span className="text-xs text-green-400 font-medium">Local only</span>
         </SettingRow>
-        <SettingRow label="Foreground app name" description="Used for Memory app-session tagging and Muse Mode app-class heuristics (process name only)">
-          <span className="text-xs text-green-400 font-medium">Local only</span>
+        <SettingRow label="Foreground app name" description="Used locally for app context. AI can send the app name and window title to OpenRouter when foreground context is enabled and applied.">
+          <span className="text-xs text-yellow-400 font-medium">Optional sharing</span>
         </SettingRow>
         <SettingRow label="Window title" description="Optionally stored truncated/sanitized (off by default, see Memory tab)">
           <span className="text-xs text-yellow-400 font-medium">Opt-in only</span>
         </SettingRow>
       </SettingSection>
 
-      <SettingSection title="What Kovy Never Does">
-        <SettingRow label="Upload screenshots">
-          <span className="text-xs text-red-400 font-medium">Never</span>
+      <SettingSection title="Storage and Network Choices">
+        <SettingRow label="Upload screenshots" description="Sent to OpenRouter only with applied AI and screenshot consent. Text chat does not send screenshots.">
+          <span className="text-xs text-yellow-400 font-medium">Opt-in only</span>
         </SettingRow>
         <SettingRow label="Log keystrokes">
           <span className="text-xs text-red-400 font-medium">Never</span>
@@ -156,14 +169,14 @@ export function PrivacyTab() {
         <SettingRow label="Read clipboard">
           <span className="text-xs text-red-400 font-medium">Never</span>
         </SettingRow>
-        <SettingRow label="Send data to cloud">
-          <span className="text-xs text-red-400 font-medium">Never</span>
+        <SettingRow label="Network requests" description="Optional AI sends messages and permitted context to OpenRouter. Optional weather sends your configured location to wttr.in.">
+          <span className="text-xs text-yellow-400 font-medium">Opt-in only</span>
         </SettingRow>
         <SettingRow label="Store screenshots">
           <span className="text-xs text-red-400 font-medium">Never</span>
         </SettingRow>
-        <SettingRow label="Store passwords or secrets">
-          <span className="text-xs text-red-400 font-medium">Never</span>
+        <SettingRow label="Store your AI API key" description="Stored in the Windows credential vault. JavaScript can store, delete, or check presence; it cannot retrieve the stored key.">
+          <span className="text-xs text-yellow-400 font-medium">Vault only</span>
         </SettingRow>
         <SettingRow label="Record sensitive apps" description="Apps marked sensitive are never stored in memory (configure in Memory tab)">
           <span className="text-xs text-red-400 font-medium">Never</span>

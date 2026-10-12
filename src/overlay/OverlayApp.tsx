@@ -9,6 +9,9 @@ import { useKovyStore } from "@/store/kovyStore";
 import { useEntityStore } from "@/store/entityStore";
 import { DragEngine } from "@/engine/dragEngine";
 import { AICoordinator } from "@/engine/aiCoordinator";
+import { AI_REQUEST_BLOCK_MESSAGES } from "@/engine/aiRequestPolicy";
+import { getLiveAIRequestBlockReason, subscribeAIRequestPolicy } from "@/lib/aiRuntimePolicy";
+import { syncNativePause } from "@/lib/nativePolicy";
 import { ProfileAutoSwitchRunner } from "@/engine/profileAutoSwitchRunner";
 import { CaptureAppAutoHideRunner } from "@/engine/captureAppAutoHideRunner";
 import type { Vec2 } from "@/store/types";
@@ -19,8 +22,6 @@ import {
   unregisterAllHotkeys,
   syncConfigToBackend,
   setOverlayClickThrough,
-  pauseCapture,
-  resumeCapture,
   showSettings,
   showOverlay,
   hideOverlay,
@@ -205,23 +206,28 @@ export function OverlayApp() {
     updateWindowPosition();
   }, [ready, config.general.monitorMode]);
 
-  // --- Pause/resume capture when privacy paused ---
-  const isPrivacyPaused = useKovyStore((s) => s.isPrivacyPaused);
-  const isPaused = useKovyStore((s) => s.isPaused);
+  // Runtime state is sent on the store transition, before React effects run.
   useEffect(() => {
-    if (isPrivacyPaused || isPaused) {
-      pauseCapture();
-    } else if (config.vision.enabled) {
-      resumeCapture();
-    }
-  }, [isPrivacyPaused, isPaused, config.vision.enabled]);
+    if (!ready) return;
+    const sync = () => {
+      const state = useKovyStore.getState();
+      void syncNativePause(state.isPrivacyPaused || state.isPaused)
+        .catch(() => console.warn("Kovy: native pause could not be applied"));
+    };
+    sync();
+    const unsubscribe = useKovyStore.subscribe((next, previous) => {
+      if (next.isPaused !== previous.isPaused || next.isPrivacyPaused !== previous.isPrivacyPaused) sync();
+    });
+    return () => { unsubscribe(); void syncNativePause(true); };
+  }, [ready]);
 
   // --- AI coordinator: initialize, update config, and handle insights ---
   useEffect(() => {
     if (!ready) return;
 
-    const coordinator = new AICoordinator();
+    const coordinator = new AICoordinator(getLiveAIRequestBlockReason);
     aiCoordinatorRef.current = coordinator;
+    const unsubscribePolicy = subscribeAIRequestPolicy(() => coordinator.cancelPending());
 
     coordinator.setCallbacks({
       onInsight: (insight) => {
@@ -257,6 +263,7 @@ export function OverlayApp() {
     coordinator.updateConfig(config.ai);
 
     return () => {
+      unsubscribePolicy();
       coordinator.destroy();
       aiCoordinatorRef.current = null;
     };
@@ -322,8 +329,6 @@ export function OverlayApp() {
     const state = useKovyStore.getState();
     const newPaused = !state.isPaused;
     state.setPaused(newPaused);
-    const cfg = useConfigStore.getState().appliedConfig;
-    if (newPaused) pauseCapture(); else if (cfg.vision.enabled) resumeCapture();
   }, []);
 
   const handleToggleSleep = useCallback(() => {
@@ -424,7 +429,7 @@ export function OverlayApp() {
       } else {
         // Rejected — show a brief reason as a thought
         const reasons: Record<string, string> = {
-          "disabled": "AI is turned off",
+          ...AI_REQUEST_BLOCK_MESSAGES,
           "missing-key": "I need an API key first!",
           "cooldown": "Give me a moment...",
           "busy": "I'm already thinking!",

@@ -91,7 +91,9 @@ export function recordTargetCount(count: number, topScore: number): void {
 /** Record an error */
 export function recordError(message: string, source?: string): void {
   if (!state.enabled) return;
-  pushEntry("error", { message, source: source ?? "unknown" });
+  // Never retain arbitrary exception text, URLs, paths, keys or provider bodies.
+  void message; void source;
+  pushEntry("error", { code: "runtime-error" });
 }
 
 function pushEntry(type: DiagnosticEntry["type"], data: Record<string, unknown>): void {
@@ -150,22 +152,36 @@ export function exportDiagnosticsBundle(config: KovyConfig, systemSummary?: Syst
   const bundle: Record<string, unknown> = {
     exportedAt: new Date().toISOString(),
     kovyVersion: KOVY_VERSION,
-    platform: navigator.platform ?? "unknown",
-    diagnosticEntries: state.entries,
-    fpsHistory: state.fpsHistory,
+    platform: /Win/i.test(navigator.platform) ? "Windows" : "other",
+    diagnosticEntries: state.entries.map(e => ({ timestamp: e.timestamp, type: e.type,
+      // Identifiers and arbitrary strings are omitted, even if a caller violates TS types.
+      data: Object.fromEntries(Object.entries(e.data).filter(([key, value]) =>
+        ["fps", "count", "topScore"].includes(key) && typeof value === "number" && Number.isFinite(value))),
+    })),
+    fpsHistory: state.fpsHistory.filter(v => typeof v === "number" && Number.isFinite(v)),
   };
 
   if (systemSummary) {
-    bundle.systemSummary = systemSummary;
+    bundle.systemSummary = {
+      entityCount: typeof systemSummary.entityCount === "number" ? systemSummary.entityCount : 0,
+      memoryEnabled: systemSummary.memoryEnabled === true,
+      museActive: systemSummary.museActive === true,
+      museOverlayCount: typeof systemSummary.museOverlayCount === "number" ? systemSummary.museOverlayCount : 0,
+      gamingActive: systemSummary.gamingActive === true,
+    };
   }
 
   if (config.privacy.diagnosticsIncludeConfig) {
-    // Sanitized config snapshot — remove sensitive app lists
-    const sanitized = JSON.parse(JSON.stringify(config));
-    delete sanitized.privacy.sensitiveApps;
-    delete sanitized.vision.appBlacklist;
-    delete sanitized.vision.appWhitelist;
-    bundle.configSnapshot = sanitized;
+    // Purpose-built projection: never recurse into config, profiles, rules or shadow copies.
+    bundle.configSnapshot = {
+      visionEnabled: config.vision.enabled === true,
+      memoryEnabled: config.memory.enabled === true,
+      aiEnabled: config.ai.enabled === true,
+      screenshotSharing: config.ai.sendScreenshot === true,
+      chatEnabled: config.chat.enabled === true,
+      diagnosticsEnabled: config.privacy.diagnosticsOptIn === true,
+      experimentalEnabled: config.experimental.enabled === true,
+    };
   }
 
   if (!config.privacy.diagnosticsIncludeErrors) {

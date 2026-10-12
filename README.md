@@ -318,7 +318,7 @@ v9.0.0 is the largest release in Kovy's history, organized around three pillars:
 
 ### Secure Credential Vault
 - **Windows Credential Manager**: API keys stored in the OS credential vault (`KovyAIKey` target name), never in config files, localStorage, or plaintext.
-- **Defense-in-depth privacy**: The `include_foreground_app` flag is enforced in both the TypeScript frontend (gates `getForegroundApp()` call) and the Rust backend (strips foreground info before prompt construction), ensuring foreground app data is never sent even if the flag is bypassed.
+- **Defense-in-depth privacy**: The `include_foreground_app` flag is enforced in both the TypeScript frontend (gates `getForegroundApp()` call) and the Rust backend (strips foreground info before prompt construction), and native applied consent is checked independently of each request flag.
 - **Settings UI**: API key management with show/hide toggle, save confirmation, stored status indicator, and one-click removal.
 
 ### AI Request Coordinator (TypeScript)
@@ -616,11 +616,11 @@ v9.0.0 is the largest release in Kovy's history, organized around three pillars:
 - **Motion analysis in Rust**: Screen capture and frame differencing run in a background thread, emitting results to the frontend via Tauri events
 - **One shared rAF loop**: All entities share a single `requestAnimationFrame` loop — no separate loops per entity
 - **All engines in TypeScript**: 49+ engines run in the overlay's animation loop, managed by `engineManager.ts`
-- **AI requests through Rust**: All AI network traffic goes through the Rust backend (`ai.rs`), never from the renderer. API keys stored in OS credential vault, never accessible to frontend JavaScript.
+- **AI requests through Rust**: All AI network traffic goes through the Rust backend (`ai.rs`), never from the renderer. API keys stored in OS credential vault, with no raw-key retrieval IPC. Key entry crosses the store-key boundary; presence/store/delete remain available.
 - **Multi-entity via entity store**: `entityStore.ts` manages N entity states. `kovyStore.ts` remains the founder compatibility bridge (one-way sync, one-frame lag — documented technical debt)
 - **Heuristic app detection**: Muse uses process name matching against hardcoded app sets — no OCR, no LLM, no screen parsing (AI feature is separate and opt-in)
 - **Procedural character**: Kovy is rendered entirely with Canvas 2D — body, eyes, glow, particles, shadow — no sprite sheets
-- **Privacy-first**: Zero frames retained, no cloud calls by default, no keystroke/clipboard access. Memory stored in local SQLite only. AI is opt-in only with explicit screenshot consent. Soul export is plaintext JSON (not encrypted)
+- **Privacy-first**: One previous downscaled grayscale frame held transiently in memory, no cloud calls by default, no keystroke/clipboard access. Memory stored in local SQLite only. AI is opt-in only with explicit screenshot consent. Soul export is plaintext JSON (not encrypted)
 
 ### Project Structure
 
@@ -844,11 +844,15 @@ Damped spring physics with configurable stiffness and damping. Produces smooth, 
 
 ## Privacy Statement
 
+M0/M1 review status and actual checks: [resurrection-m0-m1.md](docs/resurrection-m0-m1.md). Native release acceptance remains open; historical test/release claims below are not results for this checkout.
+
+AI insight and chat share one native request slot. Applied settings govern AI, chat, screenshot and foreground-context consent; preview cannot grant permission. Pause/disable/revision changes cancel pending work and suppress stale replies. Data already sent to OpenRouter cannot be recalled. Experimental physical input and app targeting are unavailable in this build. Recording exclusion is a best-effort Windows request with applied/failed/unsupported status, not a guarantee against recording.
+
 Kovy is **local-first by design**:
 - **Zero telemetry, zero cloud sync, zero analytics**: no data is ever uploaded by default
 - **AI is opt-in only** (v8.0.0): AI features are disabled by default. When enabled, the user must supply their own OpenRouter API key (stored in OS credential vault, never in config files). Screenshots are only sent when explicitly consented. All AI traffic goes through the Rust backend, never from the renderer.
 - **Optional real weather sync** (opt-in): fetches weather data from wttr.in. Disabled by default.
-- **Zero frame retention**: screen captures are processed and discarded in real-time. AI screenshots are sent directly to OpenRouter and never stored locally or logged.
+- **Frame handling**: motion analysis keeps the previous downscaled grayscale frame in memory for comparison. Analysis and optional AI screenshots are not written to disk or logged. The legacy retainZeroFrames config field is accepted for compatibility and does not change this enforced policy.
 - **No keystroke logging, no clipboard reading, no password inspection**
 - **Memory Palace**: stores structured data (app sessions, mood patterns) in a local SQLite database. Window titles are NOT stored by default. Sensitive apps are excluded.
 - **Muse Mode**: detects the foreground app's **process name only** via Windows API. Does not read screen content, OCR, or parse window contents.

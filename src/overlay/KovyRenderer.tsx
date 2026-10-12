@@ -447,7 +447,7 @@ export function KovyRenderer({ previewConfigRef }: KovyRendererProps) {
     let lastKey = "";
     const interval = setInterval(() => {
       const cfg = useConfigStore.getState().appliedConfig;
-      if (cfg.privacy.hideFromCapture) return; // overlay invisible to analyzer — no mask needed
+      // Keep masks active: recording exclusion is best-effort and may fail.
       const size = cfg.appearance.size;
       const entities = useEntityStore.getState().getAllEntities();
       const rects = computeEntityMaskRects(
@@ -1853,7 +1853,12 @@ export function KovyRenderer({ previewConfigRef }: KovyRendererProps) {
 
     // --- Experimental Engine: auto-interact with screen elements ---
     if (engines.experimental && config.experimental.enabled && config.experimental.autoInteract) {
-      engines.experimental.updateConfig(config.experimental);
+      const applied = useConfigStore.getState().appliedConfig;
+      engines.experimental.updateConfig(applied.experimental);
+      engines.experimental.updateTargets([
+        ...(applied.toys.enabled ? applied.toys.placedToys.map(t => ({ id: 'toy:' + t.id, ...t.position })) : []),
+        ...(applied.habitatObjects.enabled ? applied.habitatObjects.objects.map(t => ({ id: 'habitat:' + t.id, ...t.position })) : []),
+      ]);
       engines.experimental.updateVirtualDesktop(vd);
       const isPrivacyPaused = state.isPrivacyPaused ?? false;
       engines.experimental.tryInteract(movement.position, state.behaviorState, isPrivacyPaused).then((entry) => {

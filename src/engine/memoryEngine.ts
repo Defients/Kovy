@@ -1,3 +1,4 @@
+import { checkMemoryHealth } from "@/lib/memoryDb";
 // ============================================================
 // Kovy Memory Engine — writes, reads, prunes, and computes
 // memory influence for behavior/mood engines.
@@ -519,16 +520,11 @@ function moodToValence(mood: SurfaceMood): number {
 // --- Stats for settings UI ---
 
 export async function getMemoryStats(): Promise<{
-  totalCount: number;
-  entityCount: number;
-  dbAvailable: boolean;
+  totalCount: number; entityCount: number; dbAvailable: boolean; writable: boolean;
 }> {
-  if (!state.dbAvailable) {
-    return { totalCount: 0, entityCount: 0, dbAvailable: false };
-  }
-  const entityCount = await getMemoryCount(state.entityId);
-  const totalCount = entityCount; // In Phase 2, only one entity
-  return { totalCount, entityCount, dbAvailable: true };
+  const health = await checkMemoryHealth();
+  const entityCount = health.readable ? await getMemoryCount(state.entityId) : 0;
+  return { totalCount: entityCount, entityCount, dbAvailable: health.readable, writable: health.writable };
 }
 
 // --- Cleanup ---

@@ -1,0 +1,18 @@
+{
+  "identifier": "overlay-native",
+  "description": "Native operations for the overlay window",
+  "windows": [
+    "overlay"
+  ],
+  "permissions": [
+    "allow-update-capture-config",
+    "allow-pause-capture",
+    "allow-resume-capture",
+    "allow-set-monitor-index",
+    "allow-set-overlay-masks",
+    "allow-detect-capture-apps",
+    "allow-fetch-weather",
+    "allow-ai-chat",
+    "allow-experimental-interact"
+  ]
+}

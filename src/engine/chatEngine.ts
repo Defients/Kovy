@@ -12,6 +12,7 @@
 
 import type { ChatConfig, SurfaceMood, BondLevel, BehaviorState } from "@/store/types";
 import { aiChat, type ChatMessage, type ChatResponse } from "@/lib/tauriBridge";
+import { AI_REQUEST_BLOCK_MESSAGES, type AIRequestBlockReason } from "./aiRequestPolicy";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -43,7 +44,7 @@ Current state:
 - Behavior: ${behaviorState}
 ${bondDesc}
 
-You are aware of your surroundings and can see the screen. You have thoughts, feelings, and memories. You care about the user and want to be a good companion. Be genuine and authentic — don't be overly saccharine or fake.`;
+You receive the user's chat messages and the companion state above. Do not claim to see their screen or remember events beyond the conversation provided. You care about the user and want to be a good companion. Be genuine and authentic — don't be overly saccharine or fake.`;
 }
 
 /// Load persisted chat history from localStorage
@@ -53,7 +54,12 @@ function loadPersistedHistory(): ChatTurn[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed as ChatTurn[];
+    return parsed.filter((turn): turn is ChatTurn =>
+      typeof turn === "object" && turn !== null &&
+      (turn.role === "user" || turn.role === "assistant") &&
+      typeof turn.content === "string" &&
+      typeof turn.timestamp === "number" && Number.isFinite(turn.timestamp),
+    ).map(({ role, content, timestamp }) => ({ role, content, timestamp }));
   } catch {
     return [];
   }
@@ -92,12 +98,19 @@ export class ChatEngine {
   private isTyping = false;
   private error: string | null = null;
   private lastResponse: ChatResponse | null = null;
+  private pendingRequest: symbol | null = null;
+  private historyLoaded = false;
+  private abortController: AbortController | null = null;
+
+  constructor(private readonly getBlockReason: () => AIRequestBlockReason | null = () => null) {}
 
   updateConfig(config: ChatConfig): void {
     this.config = config;
+    if (!config.enabled) this.cancelPending();
     // Load persisted history if enabled
-    if (config.persistHistory && this.history.length === 0) {
-      this.history = loadPersistedHistory();
+    if (config.persistHistory && !this.historyLoaded) {
+      this.historyLoaded = true;
+      if (this.history.length === 0) this.history = loadPersistedHistory();
     }
     // Trim to max turns
     this.trimHistory();
@@ -121,10 +134,21 @@ export class ChatEngine {
   }
 
   clearHistory(): void {
+    this.cancelPending();
     this.history = [];
-    if (this.config?.persistHistory) {
-      clearChatHistory();
-    }
+    this.error = null;
+    this.lastResponse = null;
+    this.historyLoaded = true;
+    clearChatHistory();
+  }
+
+  /** Invalidates local results and asks native transport to stop. Sent data cannot be recalled. */
+  cancelPending(reason?: AIRequestBlockReason): void {
+    this.abortController?.abort();
+    this.abortController = null;
+    this.pendingRequest = null;
+    this.isTyping = false;
+    if (reason) this.error = AI_REQUEST_BLOCK_MESSAGES[reason];
   }
 
   private trimHistory(): void {
@@ -147,6 +171,13 @@ export class ChatEngine {
       this.error = "Chat is not enabled";
       return null;
     }
+
+    const blockReason = this.getBlockReason();
+    if (blockReason) {
+      this.error = AI_REQUEST_BLOCK_MESSAGES[blockReason];
+      return null;
+    }
+    if (this.pendingRequest !== null) return null;
 
     if (!text.trim()) {
       return null;
@@ -176,13 +207,25 @@ export class ChatEngine {
 
     this.isTyping = true;
     this.error = null;
+    const request = Symbol("chat-request");
+    this.pendingRequest = request;
+    const controller = new AbortController();
+    this.abortController = controller;
 
     try {
       const response = await aiChat({
+        requestId: `chat-${crypto.randomUUID()}`,
         model: ctx.model,
         messages,
         timeoutSecs: ctx.timeoutSecs,
-      });
+      }, controller.signal);
+
+      if (this.pendingRequest !== request) return null;
+      const blocked = this.getBlockReason();
+      if (blocked) {
+        this.error = AI_REQUEST_BLOCK_MESSAGES[blocked];
+        return null;
+      }
 
       this.lastResponse = response;
 
@@ -198,19 +241,26 @@ export class ChatEngine {
 
       return response.reply;
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : "Chat request failed";
+      if (this.pendingRequest !== request) return null;
+      const errMsg = err instanceof Error ? err.message : String(err);
       this.error = errMsg;
       return null;
     } finally {
-      this.isTyping = false;
+      if (this.pendingRequest === request) {
+        this.pendingRequest = null;
+        this.abortController = null;
+        this.isTyping = false;
+      }
     }
   }
 
   destroy(): void {
+    this.cancelPending();
     this.config = null;
     this.history = [];
     this.isTyping = false;
     this.error = null;
     this.lastResponse = null;
+    this.historyLoaded = false;
   }
 }

@@ -77,7 +77,7 @@ export function AITab() {
         <p className="text-xs text-kovy-text-dim">
           Kovy can use AI to observe your screen context and generate contextual thoughts and whispers.
           Your API key is stored securely in the OS credential vault — never in config files or localStorage.
-          Screenshots are only sent when you explicitly enable it below.
+          Screenshots are only sent after you enable sharing and Apply. Live preview does not grant consent. Privacy Pause blocks new requests and cancels active transport where possible; data already sent cannot be recalled.
         </p>
       </InfoCard>
 
@@ -181,7 +181,7 @@ export function AITab() {
           <p className="text-xs text-kovy-text-dim">
             When enabled, Kovy will capture screenshots of your selected monitors and send them to the AI provider
             as part of the request. The screenshots are stitched, resized, JPEG-compressed, and sent directly to OpenRouter.
-            They are never stored locally or logged. A toast notification will appear on the overlay when a screenshot is captured.
+            Screenshot images are not written to disk or logged. A notification reports a requested screenshot; it does not confirm delivery.
           </p>
         </InfoCard>
         <SwitchSetting
@@ -216,7 +216,7 @@ export function AITab() {
             {/* Monitor selection */}
             <SettingRow
               label="Monitor selection"
-              description="Choose which screens to capture (empty = primary only)"
+              description="Choose up to four screens (empty = primary only). Reapply consent after changing displays."
             >
               <div className="flex flex-col gap-2 w-full mt-2">
                 {monitors.length === 0 && (
@@ -323,7 +323,7 @@ export function AITab() {
           description="Seconds before an AI request times out"
           value={config.requestTimeoutSec}
           min={5}
-          max={120}
+          max={60}
           step={5}
           onChange={(v) => updateDraft({ requestTimeoutSec: Math.round(v) })}
           displayValue={`${config.requestTimeoutSec}s`}
@@ -430,7 +430,7 @@ export function AITab() {
           </li>
           <li className="flex items-center gap-2">
             <Shield size={12} className="text-green-400" />
-            No data logged or persisted beyond the insight response
+            Analysis keeps a transient previous grayscale frame. Journals and optional chat history can persist locally.
           </li>
           <li className="flex items-center gap-2">
             <Shield size={12} className="text-green-400" />

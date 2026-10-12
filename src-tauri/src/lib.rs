@@ -4,6 +4,7 @@
 // ============================================================
 
 mod ai;
+mod policy;
 mod capture;
 mod capture_apps;
 mod experimental;
@@ -18,6 +19,9 @@ use std::sync::Arc;
 
 pub struct AppState {
     pub capture: Arc<Mutex<CaptureManager>>,
+    pub authority: Arc<policy::Authority>,
+    pub actions: Mutex<experimental::ActionGate>,
+    pub capture_visibility: Mutex<String>,
 }
 
 #[tauri::command]
@@ -39,11 +43,13 @@ fn update_capture_config(
 
 #[tauri::command]
 fn pause_capture(state: tauri::State<'_, AppState>) {
+    state.authority.pause(true);
     state.capture.lock().set_paused(true);
 }
 
 #[tauri::command]
 fn resume_capture(state: tauri::State<'_, AppState>) {
+    state.authority.pause(false);
     state.capture.lock().set_paused(false);
 }
 
@@ -69,40 +75,26 @@ fn set_overlay_masks(
     state.capture.lock().set_overlay_masks(masks);
 }
 
-/// Toggle whether the overlay window is hidden from screen capture.
-///
-/// When `hide` is true, the overlay is marked with `WDA_EXCLUDEFROMCAPTURE`,
-/// making it invisible to OBS, screen recording, and screenshots — and also
-/// to Kovy's own motion analyzer (no self-detection, no mask needed).
-///
-/// When `hide` is false, the overlay is visible to OBS/recording (WDA_NONE).
-/// The frontend should additionally call `set_overlay_mask` with the entity's
-/// bounding box so Kovy's analyzer ignores its own rendered body.
+/// Best-effort Windows recording exclusion, not a guarantee against capture.
 #[tauri::command]
-fn set_hide_from_capture(app: tauri::AppHandle, hide: bool) -> Result<(), String> {
+fn set_hide_from_capture(app: tauri::AppHandle, state: tauri::State<'_, AppState>, hide: bool) -> String {
+    let status;
     #[cfg(target_os = "windows")]
     {
         use tauri::Manager;
-        use windows_sys::Win32::UI::WindowsAndMessaging::{
-            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE,
-        };
-        let overlay = app
-            .get_webview_window("overlay")
-            .ok_or_else(|| "overlay window not found".to_string())?;
-        if let Ok(hwnd) = overlay.hwnd() {
-            unsafe {
-                let affinity = if hide { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE };
-                if SetWindowDisplayAffinity(hwnd.0 as *mut _, affinity) == 0 {
-                    return Err("SetWindowDisplayAffinity failed".to_string());
-                }
-            }
-        }
+        use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};
+        let applied = app.get_webview_window("overlay").and_then(|w| w.hwnd().ok()).is_some_and(|hwnd| unsafe {
+            SetWindowDisplayAffinity(hwnd.0 as *mut _, if hide { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE }) != 0
+        });
+        status = if !applied { "failed" } else if hide { "applied-hidden" } else { "applied-visible" };
     }
-    // On non-Windows targets there is no equivalent capture-affinity API;
-    // accept the call silently so the frontend can stay cross-platform.
-    let _ = hide;
-    Ok(())
+    #[cfg(not(target_os = "windows"))]
+    { let _ = (app, hide); status = "unsupported"; }
+    *state.capture_visibility.lock() = status.into();
+    status.into()
 }
+#[tauri::command]
+fn capture_visibility_status(state: tauri::State<'_, AppState>) -> String { state.capture_visibility.lock().clone() }
 
 /// Detect whether a known screen-capture / streaming application (OBS,
 /// Streamlabs, vMix, ShareX, etc.) is currently running. Used by the
@@ -150,12 +142,8 @@ async fn fetch_weather(location: String) -> Result<String, String> {
 
 #[tauri::command]
 fn ai_store_api_key(key: String) -> Result<(), String> {
+    if key.is_empty() || key.len() > 4096 { return Err("Invalid API key length".into()); }
     ai::store_api_key(&key)
-}
-
-#[tauri::command]
-fn ai_load_api_key() -> Result<String, String> {
-    ai::load_api_key()
 }
 
 #[tauri::command]
@@ -170,6 +158,8 @@ fn ai_has_api_key() -> bool {
 
 #[tauri::command]
 async fn ai_request(
+    state: tauri::State<'_, AppState>,
+    revision: u64,
     model: String,
     send_screenshot: bool,
     screenshot_max_width: u32,
@@ -185,6 +175,9 @@ async fn ai_request(
     request_id: String,
     source: String,
 ) -> Result<ai::AiInsight, ai::AiError> {
+    let owner = state.authority.begin(request_id.clone(), revision, false,
+        send_screenshot, include_foreground_app, &screenshot_monitor_indices)?;
+    owner.check()?;
     let api_key = ai::load_api_key().map_err(|_| ai::AiError::CredentialUnavailable)?;
 
     let params = ai::AiRequestParams {
@@ -205,22 +198,40 @@ async fn ai_request(
         source,
     };
 
-    ai::execute_ai_request(params).await
+    ai::validate_insight(&params)?;
+    owner.run(ai::execute_ai_request(params, &owner)).await
 }
 
 #[tauri::command]
 async fn ai_chat(
+    state: tauri::State<'_, AppState>,
+    request_id: String,
+    revision: u64,
     model: String,
     messages: Vec<ai::ChatMessage>,
     timeout_secs: u64,
 ) -> Result<ai::ChatResponse, ai::AiError> {
+    let owner = state.authority.begin(request_id, revision, true, false, false, &[])?;
     let params = ai::ChatRequestParams {
         model,
         messages,
         timeout_secs,
     };
-    ai::execute_chat_request(params).await
+    ai::validate_chat(&params)?;
+    owner.run(ai::execute_chat_request(params, &owner)).await
 }
+
+#[tauri::command]
+fn apply_native_policy(window: tauri::WebviewWindow, state: tauri::State<'_, AppState>, mut policy: policy::AppliedPolicy) -> Result<u64, ai::AiError> {
+    policy.topology = ai::monitor_topology().unwrap_or_default();
+    state.authority.apply(window.label(), policy)
+}
+
+#[tauri::command]
+fn native_policy_revision(state: tauri::State<'_, AppState>) -> u64 { state.authority.revision() }
+
+#[tauri::command]
+fn cancel_ai_request(state: tauri::State<'_, AppState>, request_id: String) { state.authority.cancel(&request_id); }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -365,6 +376,9 @@ pub fn run() {
         ))
         .manage(AppState {
             capture: capture_manager.clone(),
+            authority: Arc::new(policy::Authority::default()),
+            actions: Mutex::new(experimental::ActionGate::default()),
+            capture_visibility: Mutex::new("not-applied".into()),
         })
         .invoke_handler(tauri::generate_handler![
             get_monitors,
@@ -374,21 +388,20 @@ pub fn run() {
             set_monitor_index,
             set_overlay_masks,
             set_hide_from_capture,
+            capture_visibility_status,
             detect_capture_apps,
             get_foreground_app,
             get_idle_seconds,
             fetch_weather,
+            apply_native_policy,
+            native_policy_revision,
+            cancel_ai_request,
             ai_store_api_key,
-            ai_load_api_key,
             ai_delete_api_key,
             ai_has_api_key,
             ai_request,
             ai_chat,
-            experimental::simulate_click,
-            experimental::simulate_key,
-            experimental::simulate_hover,
-            experimental::get_window_at_position,
-            experimental::get_element_info,
+            experimental::experimental_interact,
         ])
         .setup(move |app| {
             // --- Compute virtual desktop bounds spanning all monitors ---

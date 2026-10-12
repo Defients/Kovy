@@ -626,9 +626,9 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
     const { appliedConfig } = get();
     if (appliedConfig.privacy.hideFromCapture === hide) {
       // Already in the desired state — still sync the backend to be safe.
-      const { setHideFromCapture, setOverlayMasks } = await import("@/lib/tauriBridge");
+      const { setHideFromCapture } = await import("@/lib/tauriBridge");
       await setHideFromCapture(hide);
-      if (hide) await setOverlayMasks([]);
+
       return;
     }
     const newConfig: KovyConfig = {

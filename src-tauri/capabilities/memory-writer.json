@@ -1,0 +1,11 @@
+{
+  "identifier": "memory-writer",
+  "description": "Memory recording in overlay and explicit maintenance in settings. SQL plugin has no per-statement scope.",
+  "windows": [
+    "settings",
+    "overlay"
+  ],
+  "permissions": [
+    "sql:allow-execute"
+  ]
+}

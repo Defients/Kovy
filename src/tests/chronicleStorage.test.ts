@@ -13,6 +13,8 @@ import { localDateStr } from "../engine/chronicleEngine";
 const store: Record<string, string> = {};
 
 beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(2026, 7, 11, 21, 0, 0));
   for (const k of Object.keys(store)) delete store[k];
   vi.stubGlobal("localStorage", {
     getItem: (k: string) => (k in store ? store[k] : null),
@@ -23,6 +25,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -170,6 +173,26 @@ describe("persistSnapshot", () => {
     const day3 = snap(new Date(2026, 7, 11, 21, 0, 0));
     persistSnapshot(day3, 30);
     expect(loadSnapshots().length).toBe(3);
+  });
+
+  it("preserves only the latest snapshot when every snapshot has expired", () => {
+    const day1 = snap(new Date(2026, 7, 9, 21, 0, 0));
+    const day2 = snap(new Date(2026, 7, 10, 21, 0, 0));
+    saveSnapshots([day1, day2]);
+    vi.setSystemTime(new Date(2027, 0, 1, 21, 0, 0));
+    const day3 = snap(new Date(2026, 7, 11, 21, 0, 0));
+    expect(persistSnapshot(day3, 30).map(s => s.dateStr)).toEqual(["2026-08-11"]);
+  });
+
+  it("keeps the exact retention boundary and prunes one millisecond earlier", () => {
+    const cutoff = Date.now() - 30 * 86400000;
+    const old = snap(new Date(cutoff - 1));
+    const boundary = snap(new Date(cutoff));
+    saveSnapshots([old]);
+    const today = snap(new Date());
+    expect(persistSnapshot(today, 30).map(s => s.timestamp)).toEqual([today.timestamp]);
+    saveSnapshots([boundary]);
+    expect(persistSnapshot(today, 30).map(s => s.timestamp)).toEqual([cutoff, today.timestamp]);
   });
 });
 

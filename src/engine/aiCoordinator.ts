@@ -13,6 +13,7 @@
 import type { AIConfig, AIInsight, AIRequestSource, AIRejectReason, AIStartResult, AIWhisperCategory } from "@/store/types";
 import { aiRequest, getForegroundApp, aiHasApiKey, type AiInsightResponse } from "@/lib/tauriBridge";
 import { kovyLog } from "@/lib/utils";
+import type { AIRequestBlockReason } from "./aiRequestPolicy";
 
 type InsightCallback = (insight: AIInsight) => void;
 type ThinkingCallback = (isThinking: boolean) => void;
@@ -48,6 +49,9 @@ export class AICoordinator {
   private lastInstaSendTime = 0;
   private periodicTimer: ReturnType<typeof setInterval> | null = null;
   private hasApiKey: boolean = false;
+  private configRevision = 0;
+
+  constructor(private readonly getBlockReason: () => AIRequestBlockReason | null = () => null) {}
 
   private onInsight: InsightCallback | null = null;
   private onThinking: ThinkingCallback | null = null;
@@ -67,21 +71,26 @@ export class AICoordinator {
   }
 
   async updateConfig(config: AIConfig): Promise<void> {
-    const wasEnabled = this.config?.enabled ?? false;
-    const wasPeriodic = this.config?.periodicEnabled ?? false;
+    const revision = ++this.configRevision;
+    this.stopPeriodic();
+    this.cancelPending();
     this.config = config;
+    this.hasApiKey = false;
 
     if (config.enabled) {
-      this.hasApiKey = await aiHasApiKey();
-    } else {
-      this.hasApiKey = false;
+      let hasApiKey = false;
+      try {
+        hasApiKey = await aiHasApiKey();
+      } catch {
+        // A failed vault lookup must not retain stale authorization.
+      }
+      if (revision !== this.configRevision) return;
+      this.hasApiKey = hasApiKey;
     }
 
     // Restart periodic timer if settings changed
     if (config.enabled && config.periodicEnabled) {
-      if (!wasEnabled || !wasPeriodic || this.periodicTimer === null) {
-        this.startPeriodic();
-      }
+      this.startPeriodic();
     } else {
       this.stopPeriodic();
     }
@@ -110,6 +119,8 @@ export class AICoordinator {
     if (!this.config || !this.config.enabled) {
       return { canStart: false, reason: "disabled" };
     }
+    const blockReason = this.getBlockReason();
+    if (blockReason) return { canStart: false, reason: blockReason };
     if (!this.hasApiKey) {
       return { canStart: false, reason: "missing-key" };
     }
@@ -147,15 +158,20 @@ export class AICoordinator {
     }
 
     const completion = promise.then((insight) => {
+      if (this.pending?.abortController !== abortController) return undefined;
       this.pending = null;
       this.onThinking?.(false);
+      if (this.getBlockReason()) return undefined;
       this.onInsight?.(insight);
       return insight;
     }).catch((err) => {
+      if (this.pending?.abortController !== abortController) return undefined;
       this.pending = null;
       this.onThinking?.(false);
-      this.onError?.(source, String(err));
-      return undefined as unknown as AIInsight;
+      if (!abortController.signal.aborted && !this.getBlockReason()) {
+        this.onError?.(source, String(err));
+      }
+      return undefined;
     });
 
     return { accepted: true, requestId, completion };
@@ -180,13 +196,17 @@ export class AICoordinator {
       }
     }
 
+    if (abortController.signal.aborted || this.getBlockReason()) {
+      throw new Error("cancelled");
+    }
+
     if (config.sendScreenshot && this.onScreenshot) {
       // Determine which monitor names will be captured
       const monitorNames = this.getMonitorNamesForConfig(config);
       this.onScreenshot(source, monitorNames);
     }
 
-    if (abortController.signal.aborted) {
+    if (abortController.signal.aborted || this.getBlockReason()) {
       throw new Error("cancelled");
     }
 
@@ -205,9 +225,9 @@ export class AICoordinator {
       timeoutSecs: config.requestTimeoutSec,
       requestId,
       source,
-    });
+    }, abortController.signal);
 
-    if (abortController.signal.aborted) {
+    if (abortController.signal.aborted || this.getBlockReason()) {
       throw new Error("cancelled");
     }
 
@@ -241,9 +261,11 @@ export class AICoordinator {
   }
 
   destroy(): void {
+    this.configRevision++;
     this.stopPeriodic();
     this.cancelPending();
     this.config = null;
+    this.hasApiKey = false;
     this.onInsight = null;
     this.onThinking = null;
     this.onError = null;

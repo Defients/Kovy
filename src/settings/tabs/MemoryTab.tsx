@@ -16,12 +16,16 @@ export function MemoryTab() {
   const update = useConfigStore((s) => s.updateDraftMemory);
   const resetSection = useConfigStore((s) => s.resetSection);
 
-  const [stats, setStats] = useState<{ totalCount: number; entityCount: number; dbAvailable: boolean } | null>(null);
+  const [stats, setStats] = useState<{ totalCount: number; entityCount: number; dbAvailable: boolean; writable: boolean } | null>(null);
   const [soulStatus, setSoulStatus] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   useEffect(() => {
-    getMemoryStats().then(setStats);
+    let active = true;
+    const refresh = () => { void getMemoryStats().then(s => { if (active) setStats(s); }); };
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => { active = false; clearInterval(timer); };
   }, []);
 
   const handleExportSoul = async () => {
@@ -69,7 +73,14 @@ export function MemoryTab() {
   };
 
   const handleClearMemories = async () => {
-    await clearAllMemories();
+    try {
+      await clearAllMemories();
+    } catch {
+      setSoulStatus("Memories could not be cleared. Check database status.");
+      setStats(await getMemoryStats());
+      setShowClearConfirm(false);
+      return;
+    }
     const newStats = await getMemoryStats();
     setStats(newStats);
     setSoulStatus("All memories cleared");
@@ -82,7 +93,7 @@ export function MemoryTab() {
       <InfoCard title="Memory Palace">
         Kovy remembers significant local events over time — app sessions, interactions,
         mood patterns, and quiet periods. All memories are stored locally on your device
-        in a bounded SQLite database. No data leaves your computer.
+        in a bounded SQLite database. Memory records are not sent by the AI transport. Configuration and Soul exports are separate, user-controlled files.
         <p className="text-kovy-text-dim mt-1">
           Memory influence on behavior is subtle: familiar apps feel more comfortable,
           time-of-day patterns gently bias mood, and prolonged interactions build trust.
@@ -102,10 +113,10 @@ export function MemoryTab() {
             <span className="text-xs text-kovy-text font-mono">{stats.entityCount}</span>
           </SettingRow>
         )}
-        {stats && !stats.dbAvailable && (
+        {stats && (!stats.dbAvailable || !stats.writable) && (
           <SettingRow label="Database status">
             <div className="flex flex-col items-end gap-1">
-              <span className="text-xs text-yellow-400">SQLite unavailable</span>
+              <span className="text-xs text-yellow-400">{stats.dbAvailable ? "Memory degraded: writes unavailable" : "SQLite unavailable"}</span>
               {getDbInitError() && (
                 <span className="text-[10px] text-kovy-text-dim max-w-xs text-right">
                   {getDbInitError()}

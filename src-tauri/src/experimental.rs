@@ -1,196 +1,83 @@
-// ============================================================
-// Experimental Mode — screen interaction via Windows APIs
-//
-// When experimental mode is enabled, Kovy can trigger clicks
-// and keyboard inputs on screen elements.
-//
-// Safety:
-// - All functions are no-ops on non-Windows platforms
-// - Rate limiting is enforced by the frontend engine
-// - Privacy pause disables all interactions
-// ============================================================
-
+//! Physical OS input is deliberately unavailable in M1. No Win32 input functions
+//! are linked here. Kept config values do not grant a validated app/focus target.
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
+use crate::{policy::AppliedPolicy, AppState};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ElementInfo {
-    pub name: String,
-    pub element_type: String,
-    pub bounds: (i32, i32, i32, i32), // x, y, width, height
-    pub is_clickable: bool,
+#[derive(Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Target { pub id: String, pub x: f64, pub y: f64 }
+impl Target {
+    pub fn valid(&self) -> bool {
+        (self.id.starts_with("toy:") || self.id.starts_with("habitat:")) && self.id.len() <= 128
+            && self.x.is_finite() && self.y.is_finite()
+            && (0.0..=65536.0).contains(&self.x) && (0.0..=65536.0).contains(&self.y)
+    }
 }
 
-#[cfg(target_os = "windows")]
-mod windows_impl {
+pub trait InputAdapter { fn dispatch(&mut self, target: &Target, action: &str) -> Result<(), String>; }
+struct UnavailableInput;
+impl InputAdapter for UnavailableInput {
+    fn dispatch(&mut self, _: &Target, _: &str) -> Result<(), String> {
+        Err("Physical desktop input is unavailable pending native target validation".into())
+    }
+}
+#[derive(Default)]
+pub struct ActionGate { last: Option<Instant> }
+impl ActionGate {
+    pub fn dispatch(&mut self, policy: &AppliedPolicy, paused: bool, target: &Target, action: &str,
+                    now: Instant, input: &mut impl InputAdapter) -> Result<(), String> {
+        if paused || !policy.experimental_enabled || !policy.experimental_opt_in
+            || policy.target_mode != "toys" || !target.valid()
+            || !policy.targets.contains(target) || !matches!(action, "click" | "hover")
+            || !policy.actions.iter().any(|a| a == action) {
+            return Err("Experimental action denied by policy".into());
+        }
+        if self.last.is_some_and(|last| now.saturating_duration_since(last) < Duration::from_secs(policy.cooldown_secs.max(1))) {
+            return Err("Experimental cooldown active".into());
+        }
+        self.last = Some(now); // Reservation includes failures; protected by native mutex.
+        input.dispatch(target, action)
+    }
+}
+#[tauri::command]
+pub fn experimental_interact(state: tauri::State<'_, AppState>, revision: u64, target: Target, action: String) -> Result<(), String> {
+    let mut gate = state.actions.lock();
+    if revision != state.authority.revision() { return Err("Stale experimental policy".into()); }
+    let (policy, paused) = state.authority.action_policy();
+    gate.dispatch(&policy, paused, &target, &action, Instant::now(), &mut UnavailableInput)
+}
+
+#[cfg(test)]
+mod tests {
     use super::*;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SetCursorPos,
-        GetWindowTextW, WindowFromPoint,
-        WINDOWINFO, GetWindowInfo,
-    };
-    use windows_sys::Win32::Foundation::POINT;
-    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-        keybd_event, mouse_event, KEYEVENTF_KEYUP,
-        VK_RETURN, VK_ESCAPE, VK_SPACE, VK_TAB,
-        MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_RIGHTDOWN,
-        MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP,
-    };
-
-    pub fn simulate_click_impl(x: i32, y: i32, button: &str) -> Result<(), String> {
-        unsafe {
-            // Move cursor to position
-            if SetCursorPos(x, y) == 0 {
-                return Err("Failed to set cursor position".to_string());
-            }
-
-            // Small delay to ensure cursor has moved
-            std::thread::sleep(std::time::Duration::from_millis(10));
-
-            let (down, up) = match button {
-                "right" => (MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP),
-                "middle" => (MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP),
-                _ => (MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP),
-            };
-
-            mouse_event(down, 0, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            mouse_event(up, 0, 0, 0, 0);
-        }
-        Ok(())
+    #[derive(Default)] struct FakeInput(usize);
+    impl InputAdapter for FakeInput {
+        fn dispatch(&mut self, _: &Target, _: &str) -> Result<(), String> { self.0 += 1; Ok(()) }
     }
-
-    pub fn simulate_key_impl(key: &str) -> Result<(), String> {
-        let vk = match key {
-            "enter" | "return" => VK_RETURN,
-            "escape" | "esc" => VK_ESCAPE,
-            "space" => VK_SPACE,
-            "tab" => VK_TAB,
-            _ => return Err(format!("Unsupported key: {}", key)),
-        };
-
-        unsafe {
-            keybd_event(vk as u8, 0, 0, 0);
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            keybd_event(vk as u8, 0, KEYEVENTF_KEYUP, 0);
-        }
-        Ok(())
+    #[test]
+    fn fake_input_enforces_consent_target_action_pause_and_cooldown() {
+        let target = Target { id: "toy:ball".into(), x: 10.0, y: 20.0 };
+        let mut p = AppliedPolicy { experimental_enabled: true, experimental_opt_in: true,
+            target_mode: "toys".into(), actions: vec!["click".into(), "type".into()], targets: vec![target.clone()],
+            cooldown_secs: 5, ..Default::default() };
+        let mut gate = ActionGate::default(); let mut fake = FakeInput::default(); let now = Instant::now();
+        assert!(gate.dispatch(&p, true, &target, "click", now, &mut fake).is_err());
+        assert!(gate.dispatch(&p, false, &target, "type", now, &mut fake).is_err());
+        let bad = Target { x: f64::NAN, ..target.clone() };
+        assert!(gate.dispatch(&p, false, &bad, "click", now, &mut fake).is_err());
+        p.target_mode = "allowlist".into();
+        assert!(gate.dispatch(&p, false, &target, "click", now, &mut fake).is_err());
+        p.target_mode = "toys".into(); p.experimental_opt_in = false;
+        assert!(gate.dispatch(&p, false, &target, "click", now, &mut fake).is_err());
+        p.experimental_opt_in = true;
+        assert!(gate.dispatch(&p, false, &target, "click", now, &mut fake).is_ok());
+        assert!(gate.dispatch(&p, false, &target, "click", now, &mut fake).is_err());
+        assert!(gate.dispatch(&p, false, &target, "click", now + Duration::from_secs(5), &mut fake).is_ok());
+        assert_eq!(fake.0, 2);
     }
-
-    /// Move the cursor to (x, y) without clicking.
-    /// This is a real hover — SetCursorPos triggers mouse-move events
-    /// that UI frameworks (Win32, web, etc.) respond to.
-    pub fn simulate_hover_impl(x: i32, y: i32) -> Result<(), String> {
-        unsafe {
-            if SetCursorPos(x, y) == 0 {
-                return Err("Failed to set cursor position".to_string());
-            }
-        }
-        Ok(())
+    #[test]
+    fn production_adapter_never_sends_os_input() {
+        assert!(UnavailableInput.dispatch(&Target::default(), "click").is_err());
     }
-
-    pub fn get_window_at_position_impl(x: i32, y: i32) -> Option<ElementInfo> {
-        unsafe {
-            // Use WindowFromPoint via point structure
-            let point = POINT { x, y };
-            let hwnd = WindowFromPoint(point);
-            if hwnd.is_null() {
-                return None;
-            }
-
-            let mut title_buf = [0u16; 512];
-            let len = GetWindowTextW(hwnd, title_buf.as_mut_ptr(), 512);
-            let name = if len > 0 {
-                String::from_utf16_lossy(&title_buf[..len as usize])
-            } else {
-                String::new()
-            };
-
-            let mut rect = std::mem::zeroed::<WINDOWINFO>();
-            rect.cbSize = std::mem::size_of::<WINDOWINFO>() as u32;
-            let _ = GetWindowInfo(hwnd, &mut rect);
-
-            let bounds = (
-                rect.rcWindow.left,
-                rect.rcWindow.top,
-                rect.rcWindow.right - rect.rcWindow.left,
-                rect.rcWindow.bottom - rect.rcWindow.top,
-            );
-
-            Some(ElementInfo {
-                name,
-                element_type: "window".to_string(),
-                bounds,
-                is_clickable: true,
-            })
-        }
-    }
-
-    pub fn get_element_info_impl(x: i32, y: i32) -> Option<ElementInfo> {
-        get_window_at_position_impl(x, y)
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-mod stub_impl {
-    use super::*;
-
-    pub fn simulate_click_impl(_x: i32, _y: i32, _button: &str) -> Result<(), String> {
-        Err("Experimental mode is only supported on Windows".to_string())
-    }
-
-    pub fn simulate_key_impl(_key: &str) -> Result<(), String> {
-        Err("Experimental mode is only supported on Windows".to_string())
-    }
-
-    pub fn simulate_hover_impl(_x: i32, _y: i32) -> Result<(), String> {
-        Err("Experimental mode is only supported on Windows".to_string())
-    }
-
-    pub fn get_window_at_position_impl(_x: i32, _y: i32) -> Option<ElementInfo> {
-        None
-    }
-
-    pub fn get_element_info_impl(_x: i32, _y: i32) -> Option<ElementInfo> {
-        None
-    }
-}
-
-#[tauri::command]
-pub fn simulate_click(x: i32, y: i32, button: String) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    { windows_impl::simulate_click_impl(x, y, &button) }
-    #[cfg(not(target_os = "windows"))]
-    { stub_impl::simulate_click_impl(x, y, &button) }
-}
-
-#[tauri::command]
-pub fn simulate_key(key: String) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    { windows_impl::simulate_key_impl(&key) }
-    #[cfg(not(target_os = "windows"))]
-    { stub_impl::simulate_key_impl(&key) }
-}
-
-#[tauri::command]
-pub fn simulate_hover(x: i32, y: i32) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    { windows_impl::simulate_hover_impl(x, y) }
-    #[cfg(not(target_os = "windows"))]
-    { stub_impl::simulate_hover_impl(x, y) }
-}
-
-#[tauri::command]
-pub fn get_window_at_position(x: i32, y: i32) -> Option<ElementInfo> {
-    #[cfg(target_os = "windows")]
-    { windows_impl::get_window_at_position_impl(x, y) }
-    #[cfg(not(target_os = "windows"))]
-    { stub_impl::get_window_at_position_impl(x, y) }
-}
-
-#[tauri::command]
-pub fn get_element_info(x: i32, y: i32) -> Option<ElementInfo> {
-    #[cfg(target_os = "windows")]
-    { windows_impl::get_element_info_impl(x, y) }
-    #[cfg(not(target_os = "windows"))]
-    { stub_impl::get_element_info_impl(x, y) }
 }

@@ -145,8 +145,8 @@ function WelcomeStep() {
       <p className="text-sm text-kovy-text-muted leading-relaxed max-w-sm mx-auto">
         Kovy is a curious, expressive little entity that lives on your desktop,
         watches for interesting things happening on your screen, and keeps you
-        company while you work. Everything runs locally — nothing leaves your
-        computer.
+        company while you work. It runs locally by default. If you enable AI,
+        chat messages and the screen context you opt to share go to OpenRouter.
       </p>
       <div className="text-xs text-kovy-text-muted mt-4 max-w-sm mx-auto leading-relaxed grid grid-cols-2 gap-x-4 gap-y-1">
         <p><span className="text-kovy-cyan font-medium">Bond</span> — build a relationship over time</p>
@@ -204,8 +204,8 @@ function PrivacyStep() {
       <h2 className="text-lg font-semibold text-kovy-text mb-3 text-center">Privacy First</h2>
       <div className="space-y-3 text-sm text-kovy-text-muted leading-relaxed">
         <p>
-          Kovy processes everything <span className="text-kovy-cyan font-medium">locally on your device</span>.
-          Nothing is uploaded. Nothing leaves your computer.
+          Kovy analyzes motion <span className="text-kovy-cyan font-medium">locally on your device</span>.
+          Optional AI sends chat messages and permitted context to OpenRouter. Screenshot sharing requires separate consent.
         </p>
         <div className="kovy-glass p-3 space-y-1.5 text-xs">
           <div className="flex items-center gap-2">
@@ -214,7 +214,7 @@ function PrivacyStep() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-green-400">✓</span>
-            <span>Zero frames are stored after processing</span>
+            <span>A previous downscaled grayscale frame stays briefly in memory for comparison; screenshots are not saved to disk</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-green-400">✓</span>
@@ -230,11 +230,11 @@ function PrivacyStep() {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-green-400">✓</span>
-            <span>Optional real weather sync (opt-in, via wttr.in — the only network feature)</span>
+            <span>Optional weather sends your configured location to wttr.in</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-green-400">✓</span>
-            <span>You can pause or disable any feature anytime</span>
+            <span>Privacy Pause blocks new AI requests and cancels pending work. Data already sent cannot be recalled.</span>
           </div>
         </div>
         <p className="text-xs text-kovy-text-dim">

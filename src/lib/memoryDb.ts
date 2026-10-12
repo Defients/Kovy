@@ -15,6 +15,33 @@ type Database = {
 let db: Database | null = null;
 let dbInitPromise: Promise<Database | null> | null = null;
 let dbInitError: string | null = null;
+let readable = false;
+let writable = false;
+export function getMemoryHealth() { return { readable, writable, error: dbInitError }; }
+async function executeWrite(conn: Database, query: string, values?: unknown[]) {
+  try {
+    const result = await conn.execute(query, values);
+    writable = true;
+    dbInitError = null;
+    return result;
+  } catch {
+    writable = false;
+    dbInitError = "Memory writes failed. Check database permissions, disk space, and schema.";
+    throw new Error(dbInitError);
+  }
+}
+export async function checkMemoryHealth() {
+  const conn = await getDb();
+  if (conn) {
+    try {
+      await conn.select("SELECT id FROM memories LIMIT 0");
+      readable = true;
+      // Zero-row write probes execute permission and schema without changing saved data.
+      await executeWrite(conn, "UPDATE memories SET significance = significance WHERE 0");
+    } catch { /* executeWrite records a safe failure status */ }
+  }
+  return getMemoryHealth();
+}
 
 async function getDb(): Promise<Database | null> {
   if (db) return db;
@@ -34,18 +61,18 @@ async function getDb(): Promise<Database | null> {
           console.warn("Kovy MemoryDB: memories table not found — migrations may not have run yet");
           dbInitError = "Database connected but 'memories' table missing. Migrations may not have run.";
         } else {
+          readable = true;
           dbInitError = null;
         }
       } catch (healthErr) {
-        console.warn("Kovy MemoryDB: health check failed", healthErr);
-        dbInitError = `Health check failed: ${healthErr}`;
+        console.warn("Kovy MemoryDB: health check failed");
+        dbInitError = "Memory schema/read check failed.";
       }
 
       return db;
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error("Kovy MemoryDB: SQLite initialization failed:", msg, e);
-      dbInitError = msg;
+      console.error("Kovy MemoryDB: SQLite initialization failed");
+      dbInitError = "Memory database could not be opened.";
       return null;
     }
   })();
@@ -59,7 +86,7 @@ export function getDbInitError(): string | null {
 
 export async function isMemoryDbAvailable(): Promise<boolean> {
   const conn = await getDb();
-  return conn !== null;
+  return conn !== null && readable;
 }
 
 // --- Write ---
@@ -69,7 +96,7 @@ export async function writeMemory(record: Omit<MemoryRecord, "id">): Promise<num
   if (!conn) return null;
 
   try {
-    const result = await conn.execute(
+    const result = await executeWrite(conn, 
       `INSERT INTO memories (entity_id, type, significance, timestamp, duration, valence, stimulation, tags, app_process, app_title, summary, data)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
@@ -89,7 +116,7 @@ export async function writeMemory(record: Omit<MemoryRecord, "id">): Promise<num
     );
     return result.lastInsertId;
   } catch (e) {
-    console.warn("Kovy MemoryDB: Failed to write memory", e);
+    console.warn("Kovy MemoryDB: Failed to write memory");
     return null;
   }
 }
@@ -144,7 +171,7 @@ export async function getRecentMemories(
     );
     return rows.map(rowToRecord);
   } catch (e) {
-    console.warn("Kovy MemoryDB: Failed to read memories", e);
+    console.warn("Kovy MemoryDB: Failed to read memories");
     return [];
   }
 }
@@ -164,7 +191,7 @@ export async function getMemoriesByType(
     );
     return rows.map(rowToRecord);
   } catch (e) {
-    console.warn("Kovy MemoryDB: Failed to read memories by type", e);
+    console.warn("Kovy MemoryDB: Failed to read memories by type");
     return [];
   }
 }
@@ -275,7 +302,7 @@ export async function pruneMemories(config: MemoryConfig): Promise<number> {
   try {
     // Step 1: delete records older than retentionDays
     const cutoffMs = Date.now() - config.retentionDays * 24 * 60 * 60 * 1000;
-    const ageResult = await conn.execute(
+    const ageResult = await executeWrite(conn, 
       `DELETE FROM memories WHERE timestamp < $1`,
       [cutoffMs]
     );
@@ -289,7 +316,7 @@ export async function pruneMemories(config: MemoryConfig): Promise<number> {
 
     if (currentCount > config.maxMemories) {
       const toDelete = currentCount - config.maxMemories;
-      const overflowResult = await conn.execute(
+      const overflowResult = await executeWrite(conn, 
         `DELETE FROM memories WHERE id IN (
            SELECT id FROM memories ORDER BY significance ASC, timestamp ASC LIMIT $1
          )`,
@@ -298,7 +325,7 @@ export async function pruneMemories(config: MemoryConfig): Promise<number> {
       totalPruned += overflowResult.rowsAffected;
     }
   } catch (e) {
-    console.warn("Kovy MemoryDB: Failed to prune memories", e);
+    console.warn("Kovy MemoryDB: Failed to prune memories");
   }
 
   return totalPruned;
@@ -308,12 +335,12 @@ export async function pruneMemories(config: MemoryConfig): Promise<number> {
 
 export async function clearAllMemories(): Promise<void> {
   const conn = await getDb();
-  if (!conn) return;
+  if (!conn) throw new Error("Memory database unavailable");
 
   try {
-    await conn.execute(`DELETE FROM memories`);
+    await executeWrite(conn, `DELETE FROM memories`);
   } catch (e) {
-    console.warn("Kovy MemoryDB: Failed to clear memories", e);
+    throw new Error("Memories could not be cleared; database writes are unavailable.");
   }
 }
 
@@ -322,9 +349,9 @@ export async function clearEntityMemories(entityId: string): Promise<void> {
   if (!conn) return;
 
   try {
-    await conn.execute(`DELETE FROM memories WHERE entity_id = $1`, [entityId]);
+    await executeWrite(conn, `DELETE FROM memories WHERE entity_id = $1`, [entityId]);
   } catch (e) {
-    console.warn("Kovy MemoryDB: Failed to clear entity memories", e);
+    throw new Error("Entity memories could not be cleared; database writes are unavailable.");
   }
 }
 

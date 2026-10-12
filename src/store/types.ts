@@ -1141,7 +1141,7 @@ export interface AIInsight {
 }
 
 export type AIStartResult =
-  | { accepted: true; requestId: string; completion: Promise<AIInsight> }
+  | { accepted: true; requestId: string; completion: Promise<AIInsight | undefined> }
   | { accepted: false; reason: AIRejectReason; retryAfterMs?: number };
 
 // --- Toys ---

@@ -1,3 +1,5 @@
+import { useKovyStore } from "@/store/kovyStore";
+import { useConfigStore } from "@/store/configStore";
 // ============================================================
 // Engine Manager — extracted from KovyRenderer
 // Handles initialization, cleanup, and configuration of all
@@ -236,7 +238,7 @@ export function initEngines(engines: EngineContainer, config: KovyConfig, initia
   engines.profiles = new ProfilesEngine();
   engines.profiles.seedDefaultProfiles();
   engines.toy = new ToyEngine();
-  engines.experimental = new ExperimentalEngine();
+  engines.experimental = new ExperimentalEngine(undefined, () => { const s = useKovyStore.getState(); return s.isPrivacyPaused || s.isPaused || !useConfigStore.getState().appliedConfig.experimental.enabled; });
   engines.intent = new IntentEngine();
   engines.recall = new RecallEngine();
   engines.story = new StoryEngine();

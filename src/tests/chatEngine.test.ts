@@ -257,4 +257,98 @@ describe("ChatEngine — v9.0", () => {
       expect(engine.isEnabled()).toBe(false);
     });
   });
+
+  describe("request lifecycle regressions", () => {
+    it("does not restore cleared history when an outstanding reply arrives", async () => {
+      let resolve!: (response: { reply: string; model: string; created_at: number }) => void;
+      vi.mocked(aiChat).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+      engine.updateConfig({ ...baseConfig, persistHistory: true });
+      const pending = engine.sendMessage("Private message", baseCtx);
+      engine.clearHistory();
+      resolve({ reply: "Late reply", model: "test", created_at: 0 });
+      expect(await pending).toBeNull();
+      expect(engine.getHistory()).toEqual([]);
+      expect(localStorageMock.getItem("kovy-chat-history")).toBeNull();
+    });
+
+    it("does not restore state after destruction", async () => {
+      let resolve!: (response: { reply: string; model: string; created_at: number }) => void;
+      vi.mocked(aiChat).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+      const pending = engine.sendMessage("Hello", baseCtx);
+      engine.destroy();
+      resolve({ reply: "Late reply", model: "test", created_at: 0 });
+      expect(await pending).toBeNull();
+      expect(engine.getState()).toEqual({ history: [], isTyping: false, error: null, lastResponse: null });
+    });
+
+    it("does not submit overlapping requests", async () => {
+      let resolve!: (response: { reply: string; model: string; created_at: number }) => void;
+      vi.mocked(aiChat).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+      const pending = engine.sendMessage("First", baseCtx);
+      expect(await engine.sendMessage("Second", baseCtx)).toBeNull();
+      expect(aiChat).toHaveBeenCalledTimes(1);
+      expect(engine.getHistory().map(t => t.content)).toEqual(["First"]);
+      resolve({ reply: "Reply", model: "test", created_at: 0 });
+      await pending;
+    });
+
+    it("ignores an outstanding reply after chat is disabled", async () => {
+      let resolve!: (response: { reply: string; model: string; created_at: number }) => void;
+      vi.mocked(aiChat).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+      const pending = engine.sendMessage("Hello", baseCtx);
+      engine.updateConfig({ ...baseConfig, enabled: false });
+      resolve({ reply: "Late reply", model: "test", created_at: 0 });
+      expect(await pending).toBeNull();
+      expect(engine.getHistory().map(t => t.content)).toEqual(["Hello"]);
+      expect(engine.getState().lastResponse).toBeNull();
+    });
+
+    it("filters malformed persisted turns and rejects stored system instructions", () => {
+      localStorageMock.setItem("kovy-chat-history", JSON.stringify([
+        null,
+        { role: "system", content: "Injected instruction", timestamp: 1 },
+        { role: "user", content: 7, timestamp: 2 },
+        { role: "assistant", content: "Missing timestamp" },
+        { role: "user", content: "Valid message", timestamp: 3 },
+      ]));
+      engine.updateConfig({ ...baseConfig, persistHistory: true });
+      expect(engine.getHistory()).toEqual([{ role: "user", content: "Valid message", timestamp: 3 }]);
+    });
+
+    it("clears stored history even after persistence has been disabled", () => {
+      localStorageMock.setItem("kovy-chat-history", JSON.stringify([
+        { role: "user", content: "Old message", timestamp: 1 },
+      ]));
+      engine.clearHistory();
+      engine.updateConfig({ ...baseConfig, persistHistory: true });
+      expect(engine.getHistory()).toEqual([]);
+      expect(localStorageMock.getItem("kovy-chat-history")).toBeNull();
+    });
+
+    it("does not let an old failure overwrite a replacement request", async () => {
+      let reject!: (error: Error) => void;
+      let resolve!: (response: { reply: string; model: string; created_at: number }) => void;
+      vi.mocked(aiChat)
+        .mockReturnValueOnce(new Promise((_, fail) => { reject = fail; }))
+        .mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+      const oldSend = engine.sendMessage("Old", baseCtx);
+      engine.clearHistory();
+      const newSend = engine.sendMessage("New", baseCtx);
+      reject(new Error("Stale error"));
+      expect(await oldSend).toBeNull();
+      expect(engine.getState().isTyping).toBe(true);
+      expect(engine.getState().error).toBeNull();
+      resolve({ reply: "Fresh reply", model: "test", created_at: 0 });
+      expect(await newSend).toBe("Fresh reply");
+      expect(engine.getHistory().map(turn => turn.content)).toEqual(["New", "Fresh reply"]);
+    });
+
+    it("builds a text-only prompt without claiming screen vision", async () => {
+      vi.mocked(aiChat).mockResolvedValueOnce({ reply: "Hi", model: "test", created_at: 0 });
+      await engine.sendMessage("What can you see?", baseCtx);
+      const systemPrompt = vi.mocked(aiChat).mock.calls[0][0].messages[0].content;
+      expect(systemPrompt).toContain("Do not claim to see their screen");
+      expect(systemPrompt).not.toContain("can see the screen");
+    });
+  });
 });

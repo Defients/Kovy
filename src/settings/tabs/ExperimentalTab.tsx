@@ -10,7 +10,7 @@ import type { ExperimentalInteraction } from "@/store/types";
 const INTERACTION_LABELS: Record<ExperimentalInteraction, string> = {
   click: "Click",
   hover: "Hover",
-  type: "Keystroke",
+  type: "Space key (unavailable)",
 };
 
 export function ExperimentalTab() {
@@ -45,17 +45,16 @@ export function ExperimentalTab() {
     <div className="space-y-2">
       <InfoCard title="Experimental Mode" accent="amber">
         <p className="text-xs text-kovy-text-dim">
-          <strong className="text-red-400">Warning:</strong> When enabled, Kovy can trigger real mouse clicks
-          and keyboard inputs on screen elements near it. This uses Windows accessibility APIs to interact
-          with your desktop. All interactions are rate-limited and logged to the journal.
-          Requires explicit opt-in.
+          Physical desktop input is unavailable in this build pending native target and focus validation.
+          Saved opt-ins are preserved, but they cannot enable OS clicks or keystrokes.
+          Only placed toy/habitat candidates are considered; app allowlists and the legacy space-key action remain unavailable.
         </p>
       </InfoCard>
 
       <SettingSection title="Enablement" onReset={() => resetSection("experimental")}>
         <SwitchSetting
           label="Enable experimental mode"
-          description="Allow Kovy to interact with screen elements"
+          description="Preserve experimental preference; physical desktop input remains unavailable"
           checked={config.enabled}
           onChange={handleEnable}
         />
@@ -104,7 +103,7 @@ export function ExperimentalTab() {
                 <SettingRow
                   key={type}
                   label={INTERACTION_LABELS[type]}
-                  description={type === "click" ? "Simulate mouse clicks" : type === "hover" ? "Move cursor over elements" : "Send keyboard input"}
+                  description={type === "click" ? "Simulate mouse clicks" : type === "hover" ? "Move cursor over elements" : "Unavailable until focus semantics are verified"}
                 >
                   <button
                     onClick={() => toggleInteraction(type)}
@@ -126,7 +125,7 @@ export function ExperimentalTab() {
               <li>• Interactions are rate-limited (default: 1 per 5 seconds)</li>
               <li>• Kovy only interacts when in curious or playful behavior states</li>
               <li>• Privacy pause disables all interactions immediately</li>
-              <li>• All interactions are logged to the journal</li>
+              <li>• Attempt results use generic local-object labels; app/window titles are not logged</li>
               <li>• You can disable at any time via this toggle</li>
             </ul>
           </InfoCard>
@@ -135,8 +134,8 @@ export function ExperimentalTab() {
 
       <ConfirmModal
         isOpen={showWarning}
-        title="Experimental Mode — Safety Warning"
-        message="You are about to enable experimental mode. Kovy will be able to trigger real mouse clicks and keyboard inputs on your screen. This could interact with applications unexpectedly. Do you understand and wish to proceed?"
+        title="Experimental preference"
+        message="Save this experimental preference? Physical desktop input remains unavailable in this build."
         confirmText="I understand — Enable"
         cancelText="Cancel"
         onConfirm={handleAcknowledge}

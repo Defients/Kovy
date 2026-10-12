@@ -1,0 +1,12 @@
+{
+  "identifier": "settings-native",
+  "description": "Native operations for the settings window",
+  "windows": [
+    "settings"
+  ],
+  "permissions": [
+    "allow-apply-native-policy",
+    "allow-ai-store-api-key",
+    "allow-ai-delete-api-key"
+  ]
+}
