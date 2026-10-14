@@ -41,7 +41,7 @@ pub struct CaptureAppStatus {
 
 /// Returns the lowercased process image name (without directory and
 /// without extension) for a Toolhelp32 process entry's full exe path.
-#[cfg(target_os = "windows")]
+#[cfg(any(test, target_os = "windows"))]
 fn basename_lower(full: &str) -> String {
     let trimmed = full.rsplit(['\\', '/']).next().unwrap_or(full);
     let without_ext = trimmed
