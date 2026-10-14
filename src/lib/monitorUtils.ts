@@ -12,6 +12,63 @@ export interface MonitorInfo {
   width: number;
   height: number;
   scaleFactor: number;
+  /** Stable identity used for persistence; see stableMonitorId(). */
+  id?: string;
+  /** Usable area excluding taskbar/docks, same coordinate space as x/y. */
+  workArea?: { x: number; y: number; width: number; height: number };
+}
+
+/** Shape of @tauri-apps/api/window Monitor (all values PHYSICAL px). */
+export interface RawTauriMonitor {
+  name: string | null;
+  scaleFactor: number;
+  position: { x: number; y: number };
+  size: { width: number; height: number };
+  workArea?: { position: { x: number; y: number }; size: { width: number; height: number } };
+}
+
+/**
+ * Convert Tauri monitors (physical px) into overlay CSS px.
+ * The overlay is ONE webview with ONE devicePixelRatio (the scale of the monitor
+ * the window is on), so every monitor must be divided by that same factor.
+ * Dividing each monitor by its own scaleFactor breaks adjacency on mixed-DPI.
+ */
+export function monitorsFromTauri(mons: RawTauriMonitor[], windowScale: number): MonitorInfo[] {
+  const s = windowScale > 0 && Number.isFinite(windowScale) ? windowScale : 1;
+  return mons.map((m, i) => {
+    const info: MonitorInfo = {
+      name: m.name ?? `monitor_${i}`,
+      x: m.position.x / s,
+      y: m.position.y / s,
+      width: m.size.width / s,
+      height: m.size.height / s,
+      scaleFactor: m.scaleFactor ?? 1,
+    };
+    if (m.workArea) {
+      info.workArea = {
+        x: m.workArea.position.x / s, y: m.workArea.position.y / s,
+        width: m.workArea.size.width / s, height: m.workArea.size.height / s,
+      };
+    }
+    info.id = stableMonitorId(info);
+    return info;
+  });
+}
+
+/**
+ * Stable-ish identity: device name plus resolution (in units of the monitor's own scale).
+ * Device names (\\.\DISPLAYn) can renumber after reconnect/driver updates,
+ * so resolveDisplayMonitor() also matches the "@WxH" part as a fallback.
+ */
+export function stableMonitorId(m: MonitorInfo): string {
+  return `${m.name}@${Math.round(m.width * 1000) / 1000}x${Math.round(m.height * 1000) / 1000}`;
+}
+
+/** Clamp a point into a rect with margin; collapses to center if rect is too small. */
+export function clampToBounds(pos: Vec2, b: { x: number; y: number; width: number; height: number }, margin = 20): Vec2 {
+  const ax = (lo: number, size: number, v: number) =>
+    size <= margin * 2 ? lo + size / 2 : Math.max(lo + margin, Math.min(lo + size - margin, v));
+  return { x: ax(b.x, b.width, pos.x), y: ax(b.y, b.height, pos.y) };
 }
 
 export interface VirtualDesktopBounds {
@@ -53,10 +110,7 @@ export function getMonitorByName(name: string, monitors: MonitorInfo[]): Monitor
 
 /** Clamp a position to be within a specific monitor's bounds, with padding */
 export function clampToMonitor(pos: Vec2, monitor: MonitorInfo, padding: number = 40): Vec2 {
-  return {
-    x: Math.max(monitor.x + padding, Math.min(monitor.x + monitor.width - padding, pos.x)),
-    y: Math.max(monitor.y + padding, Math.min(monitor.y + monitor.height - padding, pos.y)),
-  };
+  return clampToBounds(pos, monitor.workArea ?? monitor, padding);
 }
 
 /** Clamp a position to be within the virtual desktop */
@@ -88,16 +142,28 @@ export function resolveDisplayMonitor(
 ): MonitorInfo | null {
   if (displayMonitor === "global") return null; // free to roam
   if (displayMonitor === "primary") return monitors[primaryIndex] ?? monitors[0] ?? null;
-  // Specific monitor by name
-  const byName = getMonitorByName(displayMonitor, monitors);
+  const primary = monitors[primaryIndex] ?? monitors[0] ?? null;
+  // 1. exact stable id  2. device name (legacy persisted value)
+  const byId = monitors.find(m => (m.id ?? stableMonitorId(m)) === displayMonitor);
+  if (byId) return byId;
+  const at = displayMonitor.lastIndexOf("@");
+  const namePart = at > 0 ? displayMonitor.slice(0, at) : displayMonitor;
+  const byName = getMonitorByName(namePart, monitors);
   if (byName) return byName;
-  // Fallback: index-based ID like "monitor_0", "monitor_1"
-  const match = /^monitor_(\d+)$/.exec(displayMonitor);
+  // 3. same resolution, unique match (device renumbered after reconnect)
+  if (at > 0) {
+    const sizePart = displayMonitor.slice(at + 1);
+    const sameSize = monitors.filter(m => (m.id ?? stableMonitorId(m)).endsWith("@" + sizePart));
+    if (sameSize.length === 1) return sameSize[0];
+  }
+  // 4. legacy index-based ID like "monitor_0"
+  const match = /^monitor_(\d+)$/.exec(namePart);
   if (match) {
     const idx = parseInt(match[1], 10);
     if (idx >= 0 && idx < monitors.length) return monitors[idx];
   }
-  return null;
+  // 5. pinned monitor is gone: stay pinned, to primary (never silently free-roam)
+  return primary;
 }
 
 /** Get movement bounds for an entity based on its monitor assignment */
@@ -110,11 +176,12 @@ export function getEntityBounds(
   const targetMonitor = resolveDisplayMonitor(displayMonitor, monitors, primaryIndex);
   if (targetMonitor) {
     const idx = monitors.indexOf(targetMonitor);
+    const r = targetMonitor.workArea ?? targetMonitor;
     return {
-      x: targetMonitor.x,
-      y: targetMonitor.y,
-      width: targetMonitor.width,
-      height: targetMonitor.height,
+      x: r.x,
+      y: r.y,
+      width: r.width,
+      height: r.height,
       index: idx >= 0 ? idx : 0,
     };
   }

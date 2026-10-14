@@ -24,6 +24,38 @@ pub struct AppState {
     pub capture_visibility: Mutex<String>,
 }
 
+/// Union of monitor rects (physical px). Handles negative origins.
+/// Falls back to 1920x1080 at the origin when no monitors are reported.
+pub fn virtual_desktop(rects: &[(i32, i32, u32, u32)]) -> (i32, i32, u32, u32) {
+    if rects.is_empty() {
+        return (0, 0, 1920, 1080);
+    }
+    let min_x = rects.iter().map(|r| r.0).min().unwrap_or(0);
+    let min_y = rects.iter().map(|r| r.1).min().unwrap_or(0);
+    let max_x = rects.iter().map(|r| r.0 as i64 + r.2 as i64).max().unwrap_or(0);
+    let max_y = rects.iter().map(|r| r.1 as i64 + r.3 as i64).max().unwrap_or(0);
+    ((min_x), (min_y), (max_x - min_x as i64) as u32, (max_y - min_y as i64) as u32)
+}
+
+#[cfg(test)]
+mod monitor_tests {
+    use super::virtual_desktop;
+    #[test]
+    fn empty_falls_back() { assert_eq!(virtual_desktop(&[]), (0, 0, 1920, 1080)); }
+    #[test]
+    fn left_of_primary() {
+        assert_eq!(virtual_desktop(&[(0, 0, 1920, 1080), (-2560, 0, 2560, 1440)]), (-2560, 0, 4480, 1440));
+    }
+    #[test]
+    fn above_primary() {
+        assert_eq!(virtual_desktop(&[(0, 0, 1920, 1080), (0, -1080, 1920, 1080)]), (0, -1080, 1920, 2160));
+    }
+    #[test]
+    fn staggered_mixed_dpi_physical() {
+        assert_eq!(virtual_desktop(&[(0, 0, 3840, 2160), (3840, 540, 1920, 1080)]), (0, 0, 5760, 2160));
+    }
+}
+
 #[tauri::command]
 fn get_monitors() -> Vec<capture::MonitorInfo> {
     capture::list_monitors()
@@ -450,23 +482,11 @@ pub fn run() {
             // cross-monitor entity placement (architecture decision: single
             // overlay window over virtual desktop, not per-monitor windows).
             let monitors = app.available_monitors()?;
-            let (vx, vy, vw, vh) = if monitors.is_empty() {
-                (0i32, 0i32, 1920u32, 1080u32)
-            } else {
-                let mut min_x = i32::MAX;
-                let mut min_y = i32::MAX;
-                let mut max_x = i32::MIN;
-                let mut max_y = i32::MIN;
-                for m in &monitors {
-                    let pos = m.position();
-                    let size = m.size();
-                    min_x = min_x.min(pos.x);
-                    min_y = min_y.min(pos.y);
-                    max_x = max_x.max(pos.x + size.width as i32);
-                    max_y = max_y.max(pos.y + size.height as i32);
-                }
-                (min_x, min_y, (max_x - min_x) as u32, (max_y - min_y) as u32)
-            };
+            let rects: Vec<(i32, i32, u32, u32)> = monitors
+                .iter()
+                .map(|m| (m.position().x, m.position().y, m.size().width, m.size().height))
+                .collect();
+            let (vx, vy, vw, vh) = virtual_desktop(&rects);
 
             // --- Create overlay window spanning full virtual desktop ---
             let overlay_url = tauri::WebviewUrl::App("overlay.html".into());
@@ -482,9 +502,11 @@ pub fn run() {
             .skip_taskbar(true)
             .visible(true)
             .resizable(false)
-            .inner_size(vw as f64, vh as f64)
-            .position(vx as f64, vy as f64)
             .build()?;
+            // Monitor geometry is PHYSICAL px; the builder's inner_size/position are
+            // LOGICAL, which oversizes/misplaces the overlay at >100% scaling.
+            _overlay.set_position(tauri::PhysicalPosition::new(vx, vy))?;
+            _overlay.set_size(tauri::PhysicalSize::new(vw, vh))?;
 
             // Default the overlay to VISIBLE to screen capture (WDA_NONE) so OBS
             // display capture and other recorders can see Kovy. The frontend will

@@ -147,64 +147,10 @@ export function OverlayApp() {
     return () => { stopCurrentMonitorTracking(); };
   }, [ready, config.general.monitorMode]);
 
-  // --- Apply specific monitor positioning on mount and change ---
-  useEffect(() => {
-    if (!ready) return;
-    
-    async function updateWindowPosition() {
-      if (config.general.monitorMode === "current") {
-        return; // Handled by default OS positioning or current tracking
-      }
-      
-      try {
-        const { availableMonitors, primaryMonitor, getCurrentWindow } = await import("@tauri-apps/api/window");
-        const { PhysicalPosition } = await import("@tauri-apps/api/dpi");
-        
-        let targetMonitor = null;
-        if (config.general.monitorMode === "primary") {
-          targetMonitor = await primaryMonitor();
-        } else {
-          const monitors = await availableMonitors();
-          targetMonitor = monitors.find((m, i) => (m.name ?? `monitor_${i}`) === config.general.monitorMode);
-        }
-        
-        if (targetMonitor) {
-          const win = getCurrentWindow();
-          // Unmaximize before moving to ensure OS lets it change monitors
-          await win.unmaximize();
-          // Use physical position to move the window to the target monitor
-          await win.setPosition(new PhysicalPosition(targetMonitor.position.x, targetMonitor.position.y));
-          // Maximize again to fill the new monitor
-          await win.maximize();
-
-          // Refresh the location of Kovy and family members to place them on the correct screen
-          setTimeout(() => {
-            const state = useKovyStore.getState();
-            const centerX = window.innerWidth / 2;
-            const centerY = window.innerHeight / 2;
-            
-            state.setPosition({ x: centerX, y: centerY });
-            state.setPerchPosition(null);
-
-            const es = useEntityStore.getState();
-            es.getNonFounderEntities().forEach(sib => {
-              es.updateEntityRuntime(sib.meta.id, { 
-                position: { 
-                  x: centerX + (Math.random() * 100 - 50), 
-                  y: centerY + (Math.random() * 100 - 50) 
-                },
-                perchPosition: null
-              });
-            });
-          }, 100);
-        }
-      } catch (e) {
-        console.log("Not in Tauri, skipping window positioning", e);
-      }
-    }
-    
-    updateWindowPosition();
-  }, [ready, config.general.monitorMode]);
+  // (Removed) The capture-monitor setting used to unmaximize/move/maximize the
+  // overlay onto that monitor. The overlay must always span the virtual
+  // desktop (KovyRenderer keeps it sized); entity confinement is per-entity
+  // displayMonitor. Coupling the two caused off-window/off-monitor Kovy.
 
   // Runtime state is sent on the store transition, before React effects run.
   useEffect(() => {

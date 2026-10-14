@@ -38,6 +38,7 @@ import { getForegroundApp, setOverlayMasks } from "@/lib/tauriBridge";
 import { computeEntityMaskRects, maskRectsKey } from "@/lib/overlayMaskUtils";
 import {
   getEntityBounds, computeVirtualDesktop, getMonitorCenter, resolveDisplayMonitor,
+  monitorsFromTauri, clampToBounds,
   type MonitorInfo as MonitorInfoUtil,
   type VirtualDesktopBounds,
 } from "@/lib/monitorUtils";
@@ -245,38 +246,49 @@ export function KovyRenderer({ previewConfigRef }: KovyRendererProps) {
     // Init entity store founder
     useEntityStore.getState().initFounder();
 
-    // Load monitor geometry for per-entity display confinement
-    import("@tauri-apps/api/window").then(async ({ availableMonitors, primaryMonitor }) => {
+    // Load monitor geometry for per-entity display confinement.
+    // Re-validated on startup, every 2 s, and on window resize/scale change so
+    // hotplug, rearrangement and DPI changes are picked up (was: once at mount).
+    let lastLayoutKey = "";
+    const refreshMonitors = async () => {
       if (!mountedRef.current) return;
       try {
-        const [mons, primary] = await Promise.all([availableMonitors(), primaryMonitor()]);
-        const monInfos: MonitorInfoUtil[] = mons.map((m, i) => {
-          const sf = m.scaleFactor ?? 1;
-          return {
-            name: m.name ?? `monitor_${i}`,
-            x: m.position.x / sf,
-            y: m.position.y / sf,
-            width: m.size.width / sf,
-            height: m.size.height / sf,
-            scaleFactor: sf,
-          };
-        });
+        const { availableMonitors, primaryMonitor, getCurrentWindow } = await import("@tauri-apps/api/window");
+        const { PhysicalPosition, PhysicalSize } = await import("@tauri-apps/api/dpi");
+        const win = getCurrentWindow();
+        const [mons, primary, windowScale] = await Promise.all([availableMonitors(), primaryMonitor(), win.scaleFactor()]);
+        const layoutKey = JSON.stringify([windowScale, mons.map(m => [m.name, m.position, m.size, m.workArea, m.scaleFactor])]);
+        if (layoutKey === lastLayoutKey) return;
+        lastLayoutKey = layoutKey;
+        const monInfos = monitorsFromTauri(mons, windowScale);
         const vd = monInfos.length > 0
           ? computeVirtualDesktop(monInfos)
           : { x: 0, y: 0, width: window.innerWidth, height: window.innerHeight };
         const primaryIdx = primary
-          ? Math.max(0, mons.findIndex(m => m.name === primary.name))
+          ? Math.max(0, mons.findIndex(m => m.name === primary.name && m.position.x === primary.position.x && m.position.y === primary.position.y))
           : 0;
+        // Keep the overlay window covering the (possibly new) virtual desktop, in PHYSICAL px.
+        if (mons.length > 0) {
+          await win.setPosition(new PhysicalPosition(Math.round(vd.x * windowScale), Math.round(vd.y * windowScale)));
+          await win.setSize(new PhysicalSize(Math.round(vd.width * windowScale), Math.round(vd.height * windowScale)));
+        }
         monitorsRef.current = {
           monitors: monInfos,
           virtualDesktop: vd,
           primaryIndex: primaryIdx,
-          prevDisplayMonitors: new Map(),
+          // Force a re-teleport check against the new geometry
+          prevDisplayMonitors: monitorsRef.current.prevDisplayMonitors ?? new Map(),
         };
       } catch { /* not in Tauri */ }
-    }).catch(() => { kovyLog.warn("Monitor geometry loading failed (not in Tauri?)"); });
+    };
+    refreshMonitors().catch(() => { kovyLog.warn("Monitor geometry loading failed (not in Tauri?)"); });
+    const monitorPoll = setInterval(() => { refreshMonitors().catch(() => {}); }, 2000);
+    const onMonResize = () => { refreshMonitors().catch(() => {}); };
+    window.addEventListener("resize", onMonResize);
 
     return () => {
+      clearInterval(monitorPoll);
+      window.removeEventListener("resize", onMonResize);
       disposeEngines(enginesRef.current);
 
       mountedRef.current = false;
@@ -974,7 +986,10 @@ export function KovyRenderer({ previewConfigRef }: KovyRendererProps) {
     // Skip behavior updates while being dragged or apply release behavior
     const dragOut = frameState.current.dragOutput;
     const dragAction = resolveDragAction(dragOut);
+    const founderRect = { x: founderMinX, y: founderMinY, width: founderMovMaxX - founderMinX, height: founderMovMaxY - founderMinY };
     if (dragAction.type === "dragging") {
+      // A pinned entity cannot be dragged off its monitor
+      dragAction.position = clampToBounds(dragAction.position, founderRect, 20);
       engines.movement?.setPosition(dragAction.position.x, dragAction.position.y);
       state.setPosition(dragAction.position);
       state.setBehaviorState("perch");
@@ -1011,6 +1026,15 @@ export function KovyRenderer({ previewConfigRef }: KovyRendererProps) {
       predictedPoints: engines.cachedGamingOutput.predictedPoints,
       focusTarget: frameState.current.cachedFocusTarget,
     });
+
+    // BehaviorEngine assumes an origin of (0,0) (wander/perch/peek targets use
+    // [margin, screenWidth-margin]); keep its outputs inside the locked monitor.
+    if (behaviorResult.targetPosition) {
+      behaviorResult.targetPosition = clampToBounds(behaviorResult.targetPosition, founderRect, 20);
+    }
+    if (behaviorResult.newPerchPosition) {
+      behaviorResult.newPerchPosition = clampToBounds(behaviorResult.newPerchPosition, founderRect, 20);
+    }
 
     // Track prev top score for startle detection
     frameState.current.prevTopScore = state.activeTarget?.score ?? 0;
@@ -1426,6 +1450,9 @@ export function KovyRenderer({ previewConfigRef }: KovyRendererProps) {
 
         // Movement update
         const sibSpeedMult = sibMoodMods.speedMultiplier * config.behavior.attractionStrength;
+        const sibRect = { x: sibMinX, y: sibMinY, width: sibMovMaxX - sibMinX, height: sibMovMaxY - sibMinY };
+        if (sibBehavior.targetPosition) sibBehavior.targetPosition = clampToBounds(sibBehavior.targetPosition, sibRect, 20);
+        if (sibBehavior.newPerchPosition) sibBehavior.newPerchPosition = clampToBounds(sibBehavior.newPerchPosition, sibRect, 20);
         const sibMovement = eng.movement.update(
           dt, sibBehavior.targetPosition, sibSpeedMult,
           sibMovMaxX, sibMovMaxY,
