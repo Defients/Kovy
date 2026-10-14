@@ -165,7 +165,7 @@ export function exportDiagnosticsBundle(config: KovyConfig, systemSummary?: Syst
   const bundle: Record<string, unknown> = {
     exportedAt: new Date().toISOString(),
     kovyVersion: KOVY_VERSION,
-    platform: /Win/i.test(navigator.platform) ? "Windows" : "other",
+    platform: typeof navigator !== "undefined" && /Win/i.test(navigator.platform) ? "Windows" : "other",
     diagnosticEntries: state.entries.map(e => ({ timestamp: e.timestamp, type: e.type,
       // Identifiers and arbitrary strings are omitted, even if a caller violates TS types.
       // Enum vocabulary values (behavior states, moods) cannot carry user data and stay.
